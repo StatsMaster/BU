@@ -1,0 +1,418 @@
+
+Proc Logistic Data = &TDS. plots(only)=roc;
+	Model Quick_Close (event='1') = &vars.;
+	output out=out p=p;
+Run ; 
+
+
+%gainlift(data=out, response=quick_close, p=p, event=1, groups=10, xaxis=Percentile, out=_GainLift)
+ 
+/* macro  below */
+ 
+/* http://support.sas.com/kb/41/683.html */
+ 
+%macro oneplot(oneplot);
+     %if %upcase(%substr(&oneplot,1,2))=CG %then %do;
+       %let _title="Cumulative Gain"; %let _yvar=CumGain;
+       %let _baseline=BaseCumGain;
+     %end;
+     %else %if %upcase(%substr(&oneplot,1,2))=GA %then %do;
+       %let _title="Gain"; %let _yvar=Gain;
+       %let _baseline=BaseGain;
+     %end;
+     %else %if %upcase(%substr(&oneplot,1,2))=CL %then %do;
+       %let _title="Cumulative Lift"; %let _yvar=CumLift;
+       %let _baseline=BaseCumLift;
+     %end;
+     %else %if %upcase(%substr(&oneplot,1,2))=LI %then %do;
+       %let _title="Lift"; %let _yvar=Lift;
+       %let _baseline=BaseLift;
+     %end;
+     %else %if %upcase(%substr(&oneplot,1,2))=CC %then %do;
+       %let _title="Cumulative Percent Captured"; %let _yvar=CumPctCaptured;
+       %let _baseline=BaseCumPctCaptured;
+     %end;
+     %else %if %upcase(%substr(&oneplot,1,2))=PC %then %do;
+       %let _title="Percent Captured"; %let _yvar=PctCaptured;
+       %let _baseline=BasePctCaptured;
+     %end;
+     %else %if %upcase(%substr(&oneplot,1,2))=CR %then %do;
+       %let _title="Cumulative Percent Response"; %let _yvar=CumPctResp;
+       %let _baseline=BaseCumPctResp;
+     %end;
+     %else %if %upcase(%substr(&oneplot,1,2))=PR %then %do;
+       %let _title="Percent Response"; %let _yvar=PctResp;
+       %let _baseline=BasePctResp;
+     %end;
+     %else %do;
+       %put ERROR: ONEPLOT must be CGAIN, GAIN, CLIFT, LIFT, CCAPT, PCAPT, CRESP, or PRESP;
+       %goto exit;
+     %end;
+     proc sgrender data=&out template=GainLiftPlot;
+       run;
+     %exit:
+%mend oneplot;
+ 
+ 
+%macro GainLift(version, data=_last_, response=, p=, event=, graph=line,
+       oneplot=, groups=20, panel=yes, grid=on, xaxis=SelectedPct,
+       out=_GainLift);
+ 
+%let _version=1.0;
+%if &version ne %then %put GainLift macro Version &_version;
+ 
+%if &data=_last_ %then %let data=&syslast;
+%let _opts = %sysfunc(getoption(notes))
+            _last_=%sysfunc(getoption(_last_));
+%if &version ne debug %then %str(options nonotes;);
+ 
+/* Check for newer version */
+/*
+%if %sysevalf(&sysver >= 8.2) %then %do;
+  %let _notfound=0;
+  filename _ver url 'http://ftp.sas.com/techsup/download/stat/versions.dat' termstr=crlf;
+  data _null_;
+    infile _ver end=_eof;
+    input name:$15. ver;
+    if upcase(name)="&sysmacroname" then do;
+       call symput("_newver",ver); stop;
+    end;
+    if _eof then call symput("_notfound",1);
+    run;
+  %if &syserr ne 0 or &_notfound=1 %then
+    %put &sysmacroname: Unable to check for newer version;
+  %else %if %sysevalf(&_newver > &_version) %then %do;
+    %put &sysmacroname: A newer version of the &sysmacroname macro is available.;
+    %put %str(         ) You can get the newer version at this location:;
+    %put %str(         ) http://support.sas.com/ctx/samples/index.jsp;
+  %end;
+%end;
+*/
+ 
+  %if &oneplot ne %then %let panel=N;
+ 
+  /* DATA= data set option must be specified and must exist */
+  %if &data= or %sysfunc(exist(&data)) ne 1 %then %do;
+    %put ERROR: DATA= data set not specified or not found.;
+    %goto exit;
+  %end;
+  /* RESPONSE= check */
+  %if &response= %then %do;
+    %put ERROR: The RESPONSE= parameter is required.;
+    %goto exit;
+  %end;
+  /* P= check */
+  %if &p= %then %do;
+    %put ERROR: The P= parameter is required.;
+    %goto exit;
+  %end;
+  /* EVENT= check */
+  %if &EVENT= %then %do;
+    %put ERROR: The EVENT= parameter is required.;
+    %goto exit;
+  %end;
+  /* GROUPS= check */
+  %if &groups ne 10 and &groups ne 20 %then %do;
+    %put ERROR: GROUPS= must be 10 or 20;
+    %goto exit;
+  %end;
+  /* GRID= check */
+  %if %upcase(&grid) ne ON and %upcase(&grid) ne OFF %then %do;
+    %put ERROR: GRID= must be ON or OFF;
+    %goto exit;
+  %end;
+  /* PANEL= check */
+  %if %upcase(%substr(&panel,1,1)) ne Y and
+      %upcase(%substr(&panel,1,1)) ne N %then %do;
+    %put ERROR: PANEL= must be YES or NO;
+    %goto exit;
+  %end;
+  /* GRAPH= check */
+  %if %upcase(%substr(&graph,1,1)) ne L and
+      %upcase(%substr(&graph,1,1)) ne B and
+      %upcase(%substr(&graph,1,1)) ne N %then %do;
+    %put ERROR: GRAPH= must be LINE or BAR or NONE;
+    %goto exit;
+  %end;
+  /* XAXIS check */
+  %if       %upcase(%substr(&xaxis,1,1))=G %then %let _xvar=_grp;
+  %else %if %upcase(%substr(&xaxis,1,1))=S %then %let _xvar=SelectedPct;
+  %else %if %upcase(%substr(&xaxis,1,1))=P %then %let _xvar=Percentile;
+  %else %do;
+    %put ERROR: XAXIS= must be GROUPNUM or PERCENTILE or SELECTEDPCT;
+    %goto exit;
+  %end;
+ 
+  ods exclude all;
+  ods output nlevels=_nlvls;
+  proc freq data=&data nlevels;
+   where missing(&response) ne 1;
+   table &response;
+   run;
+  ods select all;
+  data _null_;
+   set _nlvls;
+   call symput ("nlvls",nlevels);
+   run;
+  %if &nlvls ne 2 %then %do;
+   %put ERROR: Response variable, &response, must have exactly two levels.;
+   %goto exit;
+  %end;
+  proc rank data=&data out=_ranks groups=&groups;
+   var &p; ranks _rp;
+   run;
+  data _ranks;
+   set _ranks;
+   if &response=&event then _y=1; else _y=0;
+   _grp=&groups-_rp;                 
+   run;
+  proc summary data=_ranks;
+   class _grp; var _y;
+   output out=_EvntProp mean=EvntProp sum=EvntCnt;
+   run;
+  data _missgrps;                     * Add any missing groups and set;
+   do _grp=.,1 to &groups;            * statistics to zero in missing groups;
+     _freq_=0; EvntProp=0; EvntCnt=0; output;
+   end;
+   run;
+  data _EvntProp;
+   merge _missgrps _EvntProp;
+   by _grp;
+   run;
+  data &out;
+   set _EvntProp nobs=_n;
+   retain NObs TotEvntpct TotEvntCnt NumGroups;
+   if _n_=1 then do;
+    NObs=_freq_; TotEvntPct=EvntProp*100; TotEvntCnt=EvntCnt;
+    NumGroups=_n-1;
+    delete;
+   end;
+   else do;
+    SelectedPct=_grp*100/NumGroups;
+    Percentile=100-(_grp-1)*100/NumGroups;
+    CumEvntCnt+EvntCnt;
+    CumGrpCnt+_freq_;
+ 
+    /* Percent Response */
+    PctResp=100*EvntProp;                 
+    BasePctResp=TotEvntPct;               
+ 
+    /* Cumulative Percent Response */
+    if CumGrpCnt=0 then CumPctResp=0; else
+    CumPctResp=100*(CumEvntCnt/CumGrpCnt);
+    BaseCumPctResp=TotEvntPct;            
+ 
+    /* Percent Captured */
+    PctCaptured=100*(EvntCnt/TotEvntCnt); 
+    BasePctCaptured=100*_freq_/NObs;
+ 
+    /* Cumulative Percent Captured */
+    CumPctCaptured=100*(CumEvntCnt/TotEvntCnt);
+    BaseCumPctCaptured=100*CumGrpCnt/NObs;
+ 
+    /* Lift */
+    Lift=PctResp/TotEvntPct;                  
+    BaseLift=1;
+   
+    /* Cumulative Lift */
+    CumLift=CumPctResp/TotEvntPct;            
+    BaseCumLift=1;
+ 
+    /* Gain */
+    Gain=100*(Lift-1);                        
+    BaseGain=0;
+ 
+    /* Cumulative Gain */
+    CumGain=100*(CumLift-1);                  
+    BaseCumGain=0;
+ 
+    drop _type_;
+   end;
+   label selectedpct="Selected Percent"
+         CumLift="Cumulative Lift"
+         PctCaptured="Percent Captured"
+         _grp="Group"
+         ;
+   run;
+   %if %upcase(%substr(&graph,1,1))=N %then %goto exit;
+   proc template;
+      define statgraph GainLiftPanel;
+      mvar _xvar;
+      begingraph / designheight=defaultdesignwidth;
+         entrytitle "Gains and Lift Plots" / pad=(bottom=10);
+         layout lattice / rows=4 columns=2 columndatarange=union;
+ 
+            column2headers;
+              entry textattrs=(weight=bold) "Cumulative";
+              entry textattrs=(weight=bold) "NonCumulative";
+            endcolumn2headers;
+            rowheaders;
+              entry textattrs=(weight=bold) "Gain";
+              entry textattrs=(weight=bold) "Lift";
+              entry textattrs=(weight=bold) '%Captured';
+              entry textattrs=(weight=bold) '%Response';
+            endrowheaders;
+ 
+            columnaxes;
+              columnaxis / griddisplay=&grid
+                           discreteopts=(tickvaluefitpolicy=thin);
+              columnaxis / griddisplay=&grid
+                           discreteopts=(tickvaluefitpolicy=thin);
+            endcolumnaxes;
+ 
+         *Row 1;
+            layout overlay / yaxisopts=(display=(line ticks tickvalues)
+                   griddisplay=&grid);
+              %if %upcase(%substr(&graph,1,1))=L %then %do;
+                seriesplot y=BaseCumGain x=_xvar / lineattrs=GraphData2;
+                seriesplot y=CumGain     x=_xvar / lineattrs=GraphData1;
+              %end;
+              %else %do;
+                barchartparm y=CumGain     x=_xvar;
+                seriesplot y=BaseCumGain x=_xvar / lineattrs=GraphData2;
+              %end;
+              endlayout;
+ 
+            layout overlay / yaxisopts=(display=(line ticks tickvalues)
+                   griddisplay=&grid);
+              %if %upcase(%substr(&graph,1,1))=L %then %do;
+                seriesplot y=BaseGain x=_xvar / lineattrs=GraphData2;
+                seriesplot y=Gain     x=_xvar / lineattrs=GraphData1;
+              %end;
+              %else %do;
+                barchartparm y=Gain     x=_xvar;
+                seriesplot y=BaseGain x=_xvar / lineattrs=GraphData2;
+              %end;
+              endlayout;
+ 
+         *Row 2;
+            layout overlay / yaxisopts=(display=(line ticks tickvalues)
+                   griddisplay=&grid);
+              %if %upcase(%substr(&graph,1,1))=L %then %do;
+                seriesplot y=BaseCumLift x=_xvar / lineattrs=GraphData2;
+                seriesplot y=CumLift     x=_xvar / lineattrs=GraphData1;
+              %end;
+              %else %do;
+                barchartparm y=CumLift     x=_xvar;
+                seriesplot y=BaseCumLift x=_xvar / lineattrs=GraphData2;
+              %end;
+              endlayout;
+ 
+            layout overlay / yaxisopts=(display=(line ticks tickvalues)
+                   griddisplay=&grid);
+              %if %upcase(%substr(&graph,1,1))=L %then %do;
+                seriesplot y=BaseLift x=_xvar / lineattrs=GraphData2;
+                seriesplot y=Lift     x=_xvar / lineattrs=GraphData1;
+              %end;
+              %else %do;
+                barchartparm y=Lift     x=_xvar;
+                seriesplot y=BaseLift x=_xvar / lineattrs=GraphData2;
+              %end;
+             endlayout;
+ 
+         *Row 3;
+            layout overlay / yaxisopts=(display=(line ticks tickvalues)
+                   griddisplay=&grid);
+              %if %upcase(%substr(&graph,1,1))=L %then %do;
+                seriesplot y=BaseCumPctCaptured x=_xvar / lineattrs=GraphData2;
+                seriesplot y=CumPctCaptured     x=_xvar / lineattrs=GraphData1;
+              %end;
+              %else %do;
+                barchartparm y=CumPctCaptured     x=_xvar;
+                seriesplot y=BaseCumPctCaptured x=_xvar / lineattrs=GraphData2;
+              %end;
+              endlayout;
+ 
+            layout overlay / yaxisopts=(display=(line ticks tickvalues)
+                   griddisplay=&grid);
+              %if %upcase(%substr(&graph,1,1))=L %then %do;
+                seriesplot y=BasePctCaptured x=_xvar / lineattrs=GraphData2;
+                seriesplot y=PctCaptured     x=_xvar / lineattrs=GraphData1;
+              %end;
+              %else %do;
+                barchartparm y=PctCaptured     x=_xvar;
+                seriesplot y=BasePctCaptured x=_xvar / lineattrs=GraphData2;
+              %end;
+              endlayout;
+ 
+         *Row 4;
+            layout overlay / yaxisopts=(display=(line ticks tickvalues)
+                   griddisplay=&grid);
+              %if %upcase(%substr(&graph,1,1))=L %then %do;
+                seriesplot y=BaseCumPctResp x=_xvar / lineattrs=GraphData2;
+                seriesplot y=CumPctResp     x=_xvar / lineattrs=GraphData1;
+              %end;
+              %else %do;
+                barchartparm y=CumPctResp     x=_xvar;
+                seriesplot y=BaseCumPctResp x=_xvar / lineattrs=GraphData2;
+              %end;
+              endlayout;
+ 
+            layout overlay / yaxisopts=(display=(line ticks tickvalues)
+                   griddisplay=&grid);
+              %if %upcase(%substr(&graph,1,1))=L %then %do;
+                seriesplot y=BasePctResp x=_xvar / name="Baseline" legendlabel="Baseline" lineattrs=GraphData2;
+                seriesplot y=PctResp     x=_xvar / lineattrs=GraphData1;
+              %end;
+              %else %do;
+                barchartparm y=PctResp     x=_xvar;
+                seriesplot y=BasePctResp x=_xvar / name="Baseline" legendlabel="Baseline" lineattrs=GraphData2;
+              %end;
+              endlayout;
+ 
+            sidebar;
+              discretelegend "Baseline" ;
+            endsidebar;
+ 
+         endlayout;
+      endgraph;
+      end;
+      run;
+ 
+   proc template;
+      define statgraph GainLiftPlot;
+      mvar _title _yvar _xvar _baseline;
+      begingraph;
+         entrytitle _title;
+         layout overlay / xaxisopts=(griddisplay=&grid)
+                yaxisopts=(display=(line ticks tickvalues) griddisplay=&grid);
+           %if %upcase(%substr(&graph,1,1))=L %then %do;
+             seriesplot y=_baseline x=_xvar / name="Baseline" legendlabel="Baseline" lineattrs=GraphData2;
+             seriesplot y=_yvar     x=_xvar / lineattrs=GraphData1;
+           %end;
+           %else %do;
+             barchartparm y=_yvar     x=_xvar;
+             seriesplot y=_baseline x=_xvar / name="Baseline" legendlabel="Baseline" lineattrs=GraphData2;
+           %end;
+           discretelegend "Baseline";
+         endlayout;
+      endgraph;
+      end;
+      run;
+ 
+   /* Panel of plots requested */
+   %if %upcase(%substr(&panel,1,1))=Y %then %do;
+      proc sgrender data=&out template=GainLiftPanel;
+        run;
+   %end;
+ 
+   /* Specific plot requested */
+   %else %if &oneplot ne %then %do;
+      %oneplot(&oneplot)
+   %end;
+ 
+   /* All plots, unpaneled, requested */
+   %else %do;
+      %oneplot(CG)
+      %oneplot(GA)
+      %oneplot(CL)
+      %oneplot(LI)
+      %oneplot(CC)
+      %oneplot(PC)
+      %oneplot(CR)
+      %oneplot(PR)
+   %end;
+ 
+   %exit:
+   options &_opts;
+  %mend GainLift;
