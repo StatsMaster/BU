@@ -1,0 +1,47 @@
+
+%Macro CAT_CLUSTERING(DSN=,RSP=,CAT=,NewVar=);
+%Global &NewVar._GRP;
+proc means data = &dsn. noprint nway; class &cat. ; var &rsp. ; output out = level mean = prop; run;
+proc cluster data = level method = ward outtree = fortree ; freq _freq_ ; var prop ; id &cat. ; ods output clusterHistory = Cluster; run ;
+proc freq data = &dsn. noprint; tables &cat.*&rsp. / chisq; output out = chi(keep = _pchi_) chisq; run;
+data cutoff; if _n_ = 1 then set chi; set cluster ; chisquare = _pchi_*rsquared; degfree = numberofclusters-1; logpvalue = logsdf('CHISQ',chisquare,degfree); run;
+proc plot data = cutoff ; plot logpvalue*numberofclusters / vpos = 30; run; quit;
+proc sql; select NumberOfClusters into :ncl from cutoff having logpvalue = min(logpvalue); quit;
+proc tree data = fortree  h = rsq nclusters = &ncl.  out = clus; id &cat.; run;
+proc sort data = clus; by clusname; run; proc print data = clus; by clusname; id clusname; run;
+Proc SQL; Create Table &DSN._CATS as select a.*, b.Cluster as &NewVar._GRP from &DSN.  a left join clus b on a.&Cat. = b.&Cat. ; Quit;
+Title "New Clusted Version of &CAT.";
+Proc Freq data = &DSN._CATS ; tables &NewVar._GRP*&RSP. / nocol nofreq nopercent;
+Proc Freq data = &DSN._CATS ; tables &NewVar._GRP / nopercent nocum; Run ; Title;
+data clus_code; set clus; format sas_code $75. ; if _n_ = 1 then do;
+sas_code =      "IF &CAT. = '"||compress(&CAT.)||"' then  &NewVar._GRP = '"||compress(put(Cluster,5.))||"' ; " ; end;
+else if _n_ > 1 then do; sas_code = "Else IF &CAT. = '"||compress(&CAT.)||"' then  &NewVar._GRP = '"||compress(put(Cluster,5.))||"' ; " ; end; run; 
+title "Clus Code for Cat = &CAT and NewVar = &NewVar.";
+Proc Print data = clus_code; run; title;
+proc sql; select SAS_CODE into :&NewVar._GRP separated by ' ' from clus_code; quit;
+%Put The sas code for createing the &NewVar._GRP is &&&NewVar._GRP. ;
+%Mend CAT_CLUSTERING ; * %CAT_CLUSTERING(DSN=,RSP=,CAT=,NewVar=) ;
+
+%CAT_CLUSTERING(DSN = FYC_v2, RSP=Quick_Close, CAT=CURRENT_PROCESSOR ,  NewVar=CP  )
+%CAT_CLUSTERING(DSN = FYC_v2, RSP=Quick_Close, CAT=PRICING_TYPE ,       NewVar=PT  )
+%CAT_CLUSTERING(DSN = FYC_v2, RSP=Quick_Close, CAT=NPP ,       			NewVar=NPP )
+
+%CAT_CLUSTERING(DSN = &dsn, RSP=Quick_Close, CAT=Terminal_Key ,       NewVar=POS )
+
+%CAT_CLUSTERING(DSN = &dsn, RSP=Quick_Close, CAT=PRICING_TYPE ,       NewVar=PTY )
+
+
+
+
+proc logistic data=&dsn._CATS;
+ class POS_GRP / Param = Reference;
+ model quick_close(event="1") = POS_GRP ;
+ output out=preds predprobs=crossvalidate ;
+run ;
+
+proc logistic data=preds;
+ class POS_GRP / Param = Reference;
+ model quick_close(event="1") = POS_GRP ;
+ roc pred=xp_1;
+ roccontrast;
+run;
