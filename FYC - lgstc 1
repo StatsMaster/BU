@@ -1,0 +1,220 @@
+
+/* models from initial variables */
+
+title 'step';
+proc logistic data = rename_T ;
+model quick_close(event="1") = &full_var_list.
+/ stb selection=stepwise sls=.15; 
+run ; title;
+
+title 'forward';
+proc logistic data = rename_T ;
+model quick_close(event="1") = &full_var_list.
+/ stb selection=forward sls=.15; 
+run ; title ;
+
+title 'backward';
+proc logistic data = rename_T ;
+model quick_close(event="1") = &full_var_list.
+/ stb selection=backward sls=.15; 
+run ; title;
+
+/* add interactions */
+
+/*
+title 'Stepwise'; proc logistic data = rename_samp ; model quick_close(event="1") = &list_wX. / stb selection=stepwise sls=.15;  run ; title;
+title 'Forward' ; proc logistic data = rename_samp ; model quick_close(event="1") = &list_wX. / stb selection=forward  sls=.15;  run ; title;
+title 'Backward'; proc logistic data = rename_samp ; model quick_close(event="1") = &list_wX. / stb selection=backward sls=.15;  run ; title;
+*/
+
+Title "Stepwise wXTerms V-Rename";
+Proc Logistic Data = rename_samp;
+	Model Quick_Close (event='1') = &xterm_V1.  
+	/ stb selection=stepwise sls=.15;
+Run;
+Title;
+
+
+
+proc logistic data = fyc_train ;
+	model quick_close(event="1") =
+/ stb ; 
+run ;
+
+/* ROC Optimal Point */
+ 
+proc logistic data = &dsn.;
+	Model Quick_Close (event='1') = &selected_vars.
+	/ outroc=o rocepts=0;
+ output out=model1 pred=phat;
+run;
+proc sql;
+ create table annodat as
+ 	select *, 
+	'draw' 		as Function, 
+	1 			as Line, 
+	'red' 		as color, 
+	_1mspec_ 	as X, 
+	_sensit_ 	as Y, 
+	'2' 		as xsys, 
+	'2' 		as ysys
+ from 	
+	(select *, 
+	sqrt((0-_1mspec_)**2+(1-_sensit_)**2) 		as Dist, 
+	min(sqrt((0-_1mspec_)**2+(1-_sensit_)**2)) 	as Min 
+	from work.o)
+ where dist=min;
+ title 'Point where Distance is Minimized';
+ select dist, _sensit_, _1mspec_, _PROB_ Length=8 Format 10.8
+ from annodat;
+quit;
+title;
+data example;
+ retain xsys ysys hsys '2';
+ function = 'move'; x=0; y=1; output;
+run;
+data newanno;
+ set example annodat;
+run;
+proc gplot data=o anno=newanno;
+ plot _Sensit_*_1mspec_;
+run;
+quit;
+
+/* Validation Scoring */
+
+Proc Logistic Data = &dsn. outmodel = mod.FYC_MODEL;
+	Model Quick_Close (event='1') = &selected_vars.
+	/ STB RSQ ;
+	Score 
+		data 		= fyc_V
+		out	 		= fyc_S_v1;
+Run ;
+
+proc logistic data = fyc_S_v1 des;
+	model quick_close (event='1') = P_1 ;
+run;
+
+data fyc_S_v2;
+ set fyc_S_v1;
+ if P_1 >= 0.20582202 then Pred_Attrition = 1; else Pred_Attrition = 0;
+run;
+
+Proc Freq data = fyc_S_v2 ;
+	Tables Quick_Close*Pred_Attrition;
+Run;
+
+Proc Rank
+	data = fyc_S_v2
+	out  = fyc_S_v3
+	Groups = 10 ;
+	Var P_1 ;
+	Ranks FYC;
+Run;
+
+data fyc_S_v3; set fyc_S_v3; FYC = FYC+1;
+
+Proc Freq data = fyc_S_v3 ;
+	Tables FYC*Quick_Close / nocol nopercent nofreq;
+Run;
+
+Proc Means data = fyc_S_v3 mean;
+	class FYC ;
+	var P_1 ;
+run;
+
+
+proc logistic data=alldata;
+ model y(event="1") = entry;
+ output out=preds predprobs=crossvalidate ;
+run;
+
+proc logistic data=preds;
+ model y(event="1") = entry;
+ roc pred=xp_1;
+ roccontrast;
+run;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+proc logistic data=FYC_v2;
+ model quick_close(event="1") = 
+ Biz_TiYODSEQ1
+CHN_GRP_1
+PMV_LN
+PATODSEQ1
+CHN_GRP_7
+IND_GRP_8
+IND_GRP_4
+IND_GRP_6
+IND_GRP_7
+GEO_GRP_2
+CHN_GRP_8
+CHN_GRP_9
+GEO_GRP_5
+CHN_GRP_2
+X_Biz_TiY_CHN_GRP_1
+X_PAT_IND_GRP_6
+ ;
+ output out=preds predprobs=crossvalidate ;
+run ;
+
+proc logistic data=preds;
+ model quick_close(event="1") = 
+ Biz_TiYODSEQ1
+CHN_GRP_1
+PMV_LN
+PATODSEQ1
+CHN_GRP_7
+IND_GRP_8
+IND_GRP_4
+IND_GRP_6
+IND_GRP_7
+GEO_GRP_2
+CHN_GRP_8
+CHN_GRP_9
+GEO_GRP_5
+CHN_GRP_2
+X_Biz_TiY_CHN_GRP_1
+X_PAT_IND_GRP_6
+ ;
+ roc pred=xp_1;
+ roccontrast;
+run;
+
+
+
+/* Review new variables */
+
+/*
+data FYC_v2
+ set loc_FYC_v2
+*/
+
+/* model */
+
+*http://support.sas.com/kb/39/724.html;
+
+proc logistic data=alldata;
+ model y(event="1") = entry;
+ output out=preds predprobs=crossvalidate ;
+run;
+
+proc logistic data=preds;
+ model y(event="1") = entry;
+ roc pred=xp_1;
+ roccontrast;
+run;
