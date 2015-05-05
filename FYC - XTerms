@@ -1,0 +1,70 @@
+
+
+/* X-Term */
+
+proc contents data = &dsn varnum; run;
+
+data X_TERMS; set fyc_T fyc_V; run;
+
+%let dsn = X_TERMS;
+
+%macro X_TERM;
+/* provide a stand-in list. the full list of interactions is too long. */
+%let var_num_list =
+POS_C
+VAR_FLAG
+VM_FLAG
+EMV_FLAG
+DCC_FLAG
+PMV_SR
+PMV_X3
+Biz_TiY_IN
+Biz_TiYODSEQ
+IND_GRP_2
+IND_GRP_3
+IND_GRP_6
+IND_GRP_7
+IND_GRP_8
+IND_GRP_9
+CHN_GRP_1
+CHN_GRP_2
+CHN_GRP_3
+CHN_GRP_6
+CHN_GRP_7
+GEO_GRP_1
+GEO_GRP_2
+GEO_GRP_4
+B_PAT
+POS_GRP_1
+POS_GRP_3
+POS_GRP_4
+POS_GRP_6
+PTY_GRP_1
+PTY_GRP_2
+PTY_GRP_4
+;
+%let var_cnt = 31; /* 84 */
+%let loops = 31;
+%let Cross_Var_Code =;
+%do x = 1 %to &loops.;
+	%let var = %scan(&var_num_list.,&x.,' ');
+	%do j = 2 %to %eval(&var_cnt.-1);
+		%let cross_var = %scan(&var_num_list.,&j.,' ');
+		%let Cross_Var_Code = &Cross_Var_Code X_&var._&cross_var. = (&var.)*(&cross_var.) %str(;) ;		
+	%end;
+	/*%Put This is loop &x. out of &loops.;*/
+%end;
+	data &dsn.; set &dsn.; &Cross_Var_Code. run;
+	%let Cross_Var_Code =;
+%mend X_TERM;
+
+%X_TERM
+
+data 	FYC_T_v2 	
+		FYC_V_v2;
+ set  X_TERMS;
+ if Selected = 1 then output FYC_T_v2; else output FYC_V_v2;
+run ;
+
+proc contents data = FYC_T_v2 varnum; 	
+run;
