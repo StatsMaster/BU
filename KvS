@@ -1,0 +1,272 @@
+
+
+/*
+last edit: 2015-03-07
+  _  __________     __               _______          _______ _____  ______ 
+ | |/ /  ____\ \   / /              / ____\ \        / /_   _|  __ \|  ____|
+ | ' /| |__   \ \_/ /  __   _____  | (___  \ \  /\  / /  | | | |__) | |__   
+ |  < |  __|   \   /   \ \ / / __|  \___ \  \ \/  \/ /   | | |  ___/|  __|  
+ | . \| |____   | |     \ V /\__ \  ____) |  \  /\  /   _| |_| |    | |____ 
+ |_|\_\______|  |_|      \_/ |___/ |_____/    \/  \/   |_____|_|    |______|
+                                                                            
+                                                                            
+*/
+
+
+%Macro KS ;
+
+%Global  curr_date;
+
+/* %let curr_date = 01FEB2014; */
+
+%let curr_date = %sysfunc(today(),Date9.) ;
+
+/*
+	Def.
+		K = Keyed in Transaction
+		S = Swiped Transaction
+
+*/
+
+data _null_ ; 
+	Call SymputX
+	('Day',Upcase(Compress("'"||put(intnx('month',"&Curr_Date."d,-1),date9.)||"'"))) ; 
+run ;
+data _null_ ; 
+	Call SymputX
+	('First_Day',Upcase(Compress("'"||put(intnx('month',"&Curr_Date."d,-1),date9.)||"'"))) ; 
+run ;
+%let curr_year = %sysfunc(year("&First_Day."D)) ;
+data _null_ ; 
+ format eom date9.; eom = intnx('month',"&Day."d,0,'end') ; 
+ Call SymputX ('NoD',day(eom)) ; 
+run ;
+ 
+data _null_ ;
+  if month("&First_Day."D) < 10 then do ; 
+	call symputx('curr_month',compress("0"||put(month("&First_Day."D),3.))) ; 
+  end ; 
+  else do ;
+    call symputx('curr_month',compress(put(month("&First_Day."D),3.))) ; 
+  end ;
+run ;
+
+%do i = 1 %to &NoD. ;
+
+	%if &i. > 1 %then %do;
+	data _null_ ; Call SymputX
+		('Day',Upcase(Compress("'"||put(intnx('day',"&First_Day."d,&i.),date9.)||"'"))) ; 
+	run;
+	%end;
+
+	%if &i. = 1 %then %do;
+		%let Day = &First_Day;
+	%end;
+
+	proc sql;
+		connect to oracle (user = &U. password = &P. path= 'NEWDW01.WORLD');
+		create table KS_&i. as select * from connection to oracle ( Select 
+		b.settlement_date , 
+		b.mid ,	 
+		a.KEYED_SWIPED  as KS			, 
+		count(a.amount) as ITEMCOUNT	, 
+	 	sum(a.amount)   as AMOUNT		
+
+		from 	txn.vm_edc_items 	a , 
+				txn.batch_hdrs 		b 
+
+		where 	b.settlement_date 	= &day.
+		and 	b.settlement_date 	= a.settlement_date
+		and 	b.terminal_id 		= a.terminal_id
+		and 	b.batch_number 		= a.batch_number
+		/* and 	a.card_type 		in ('MC','VI')	*/
+		group by b.settlement_date, b.mid, a.KEYED_SWIPED  );
+		disconnect from oracle;
+	quit;
+
+%Put The Day is: &Day ;
+
+%end;
+
+proc sql ;
+	select memname into :KS_DS Separated by ' ' from dictionary.tables 
+	where libname = 'WORK' and memname like 'KS___' ;
+quit ;
+
+data KS ; set &KS_DS. ; run ;
+
+proc sql;
+	create table KS_&Curr_Year._&curr_month. as select
+	mid ,	 
+	KS   			as KS , 
+	sum(ITEMCOUNT)  as Item_Count , 
+	sum(AMOUNT)     as Amount 
+ 	from KS group by mid, KS;
+quit;
+
+data KS_&Curr_Year._&curr_month. ;
+ set KS_&Curr_Year._&curr_month. ;
+
+  /* remove blank MIDs */
+
+  if mid = '' then delete;
+
+  /* K = Keyed */
+
+ 		if compress(KS) = 'K' then do ;  
+	Keyed_IC = Item_Count ;
+	Keyed_AM = Amount ;
+ end;
+
+ /* S = Swiped */
+
+ else if compress(KS) = 'S' then do ;  
+	Swiped_IC = Item_Count ;
+	Swiped_AM = Amount ;
+ end;
+
+run; 
+
+proc sql;
+	create table KS_&Curr_Year._&curr_month. as select
+	mid ,	 
+	sum(Item_Count) 	as KS_IC , 
+	sum(Keyed_IC)		as Keyed_IC ,
+	sum(Swiped_IC)		as Swiped_IC ,
+
+	sum(AMOUNT)    		as KS_AM ,
+	sum(Keyed_AM)		as Keyed_AM ,
+	sum(Swiped_AM)		as Swiped_AM 
+
+ 	from KS_&Curr_Year._&curr_month. group by mid;
+quit;
+
+Proc Stdize data =  KS_&Curr_Year._&curr_month.  Missing = 0 reponly out = KS_&Curr_Year._&curr_month. ;
+	var   _numeric_ ;
+run;
+
+proc sql;
+	drop   table 	bsnsdevl.KS_&Curr_Year._&curr_month. ;
+	create table 	bsnsdevl.KS_&Curr_Year._&curr_month. like KS_&Curr_Year._&curr_month. ;
+	insert into  	bsnsdevl.KS_&Curr_Year._&curr_month. select * from KS_&Curr_Year._&curr_month. ;
+	drop   table	KS_&Curr_Year._&curr_month. ;
+quit;
+
+proc datasets lib = work NoDetails NoList ; delete KS &KS_DS. ; Quit ;
+
+%mend KS;
+%KS
+
+/* Current Month Keyed vs. Swiped Ratios */
+
+%Let YYYY = 2015;
+%Let MM   = 04;
+%Let Date = '01APR2015'D;
+
+/* 1.) What is the current months K/S */
+
+data KS_&YYYY._&MM. ; 
+ Format Period Date9.; 
+ Period = &DATE. ; 
+ set bsnsdevl.KS_&YYYY._&MM. ; 
+ if MID = '' then delete ; 
+run ;
+
+/* K/S ratio for CAM MIDs */
+	
+data SRS_CURR_CAM_LIST;
+ set bsnsdevl.cam_plan_2_2015;
+run;
+
+proc sort data = SRS_CURR_CAM_LIST NoDupKey; By MID;  Run;
+
+proc sql;
+	drop   table 	bsnsdevl.SRS_CURR_CAM_LIST ;
+	create table 	bsnsdevl.SRS_CURR_CAM_LIST like SRS_CURR_CAM_LIST ;
+	insert into  	bsnsdevl.SRS_CURR_CAM_LIST select * from SRS_CURR_CAM_LIST ;
+	*drop table		SRS_CURR_CAM_LIST ;
+quit;
+
+proc sql;
+	create table CAM_KS as select
+	a.MID  as MID ,
+	a.Relationship as Relationship ,
+	a.Rel_Type 	,
+	a.DBANAME 	,
+	a.Channel 	,
+	a.RDC 		,
+
+	b.KS_IC 			as KpS_TRN_CNT_&YYYY._&MM. 		Label = "Total  Tran. Count   &YYYY.-&MM."  ,
+	b.KEYED_IC 			as Keyed_TRN_CNT_&YYYY._&MM. 	Label = "Keyed  Tran. Count   &YYYY.-&MM."	,
+	b.SWIPED_IC 		as Swiped_TRN_CNT_&YYYY._&MM.	Label = "Swiped Tran. Count   &YYYY.-&MM."	,
+	b.KEYED_IC/b.KS_IC	as Keyed_TRN_PCT_&YYYY._&MM.	Label = "Keyed  Tran. Percent &YYYY.-&MM."  Format = Percent8.2,
+
+	b.KS_AM 			as KpS_VOL_AMT_&YYYY._&MM.		Label = "Total  Vol. Amt. &YYYY.-&MM."  	,
+	b.KEYED_AM 			as Keyed_VOL_AMT_&YYYY._&MM.	Label = "Keyed  Vol. Amt. &YYYY.-&MM."		,
+	b.SWIPED_AM			as Swiped_VOL_AMT_&YYYY._&MM.	Label = "Swiped Vol. Amt. &YYYY.-&MM."		,
+	b.KEYED_AM/b.KS_AM	as Keyed_VOL_PCT_&YYYY._&MM.	Label = "Keyed  Vol. Percent &YYYY.-&MM."   Format = Percent8.2
+
+	from 		SRS_CURR_CAM_LIST 	a
+	inner join	KS_&YYYY._&MM.		b on a.mid = b.mid;
+quit;
+
+data CAM_KS ;
+ set CAM_KS ;
+ 		if Keyed_TRN_PCT_&YYYY._&MM. = 0 then KS_TRN_GRP = 'Key TRN 0%    ' ;
+ else	if Keyed_TRN_PCT_&YYYY._&MM. = 1 then KS_TRN_GRP = 'Key TRN 100%  ' ;
+ else									      KS_TRN_GRP = 'Key TRN 0 to 1' ;
+
+ 		if Keyed_VOL_PCT_&YYYY._&MM. = 0 then KS_VOL_GRP = 'Key VOL 0%    ' ;
+ else	if Keyed_VOL_PCT_&YYYY._&MM. = 1 then KS_VOL_GRP = 'Key VOL 100%  ' ;
+ else									      KS_VOL_GRP = 'Key VOL 0 to 1' ;
+run ;
+
+proc sql;
+	drop   table 	bsnsdevl.CAM_KS_&YYYY._&MM. ;
+	create table 	bsnsdevl.CAM_KS_&YYYY._&MM. like CAM_KS ;
+	insert into  	bsnsdevl.CAM_KS_&YYYY._&MM. select * from CAM_KS ;
+quit;
+
+proc sql;
+ connect to oracle (user = &U. password = &P. path= 'NEWDW01.WORLD');
+ 	execute (grant select on bsnsdevl.CAM_KS_&YYYY._&MM. to PUBLIC)  by oracle;
+ quit;
+
+proc freq data = CAM_KS ;
+	tables KS_TRN_GRP KS_VOL_GRP KS_TRN_GRP*KS_VOL_GRP / list missing;
+run ;
+
+proc freq data = CAM_KS ;
+	tables Keyed_TRN_PCT_&YYYY._&MM. Keyed_VOL_PCT_&YYYY._&MM. ;
+run ;
+
+proc export 
+	data 		= CAM_KS
+	dbms 		= csv
+	outfile	= 
+	"C:\Users\srseibe\Desktop\Task\Automated Reports\2015 - 01 - CCR, Keyed vs. Swiped\CAM Keyed and Swiped &YYYY.-&MM. .csv"
+  	replace Label ;
+run ;
+
+*Proc Datasets lib=work NoList NoDetails;
+	*Delete CAM_KS KS_&YYYY._&MM. SRS_CURR_CAM_LIST;
+*Quit ;
+
+FileName test EMail 'Samuel.Seibert@Elavon.com' EMAILID ='Outlook' ;
+
+DATA _null_ ;
+	File test
+	SUBJECT	= "KvS is Complete for &curr_date."
+	TO		= 'Samuel.Seibert@Elavon.com'
+	CC		= 'Hokaten@gmail.com'
+	;
+	Put 'Hey You! ^_- ' ;
+	Put ' ' ;
+	Put 'The table containing the KvS ratio measurement for' ;
+	Put "&curr_date.. is now complete." ;
+	Put ' ' ;
+	Put 'That is right, SCIENCE just happened.' ;
+	Put ' ' ;
+	Put 'Take Care Friend,' ;
+	Put 'Samuel RS';
+RUN ;
