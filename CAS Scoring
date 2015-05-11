@@ -1,0 +1,869 @@
+
+
+/*
+
+Active Base Customer Attrition Score (CAS) v1.0 
+Last Updated: 2015-04-06
+
+               _   _                ____                         
+     /\       | | (_)              |  _ \                        
+    /  \   ___| |_ ___   _____     | |_) | __ _ ___  ___         
+   / /\ \ / __| __| \ \ / / _ \    |  _ < / _` / __|/ _ \        
+  / ____ \ (__| |_| |\ V /  __/    | |_) | (_| \__ \  __/        
+ /_/____\_\___|\__|_|_\_/ \___|____|____/ \__,_|___/\___|    
+
+   _____           _____      _____                _
+  / ____|   /\    / ____|    / ____|              (_)            
+ | |       /  \  | (___     | (___   ___ ___  _ __ _ _ __   __ _ 
+ | |      / /\ \  \___ \     \___ \ / __/ _ \| '__| | '_ \ / _` |
+ | |____ / ____ \ ____) |    ____) | (_| (_) | |  | | | | | (_| |
+  \_____/_/    \_\_____/    |_____/ \___\___/|_|  |_|_| |_|\__, |
+                                                            __/ |
+                                                           |___/ 
+*/
+
+
+%let DSN 	= CAS_201504 ;
+%let YYYMM 	= 201504;
+%let date	= '01APR2015';
+
+PROC SQL ;
+	connect to oracle (user = &U. password = &P. path= 'NEWDW01.WORLD');
+		create table Loc_srs.&DSN. as select * from connection to oracle ( select 
+			b.mid	  						as MID , 
+			b.period  						as Period ,
+			z.sponsorid 					as Client_Group ,
+			s.assocnumber					as Assc_Num ,
+			nvl(s.siccode,'0000') 			as SIC_Code ,
+			n.*,
+			m.*,
+			z.Channel						as Channel ,
+			z.rdc							as Sub_Channel ,
+			z.Route							as SC_Route ,
+			coalesce(p.group_  ,'Null')  	as Rela_Type ,
+			coalesce(p.rel_long,'Null')  	as Rela ,
+
+			s.merchstatus_ecp				as STATUS ,
+			s.first_deposit_date 			as FDD ,
+			s.last_deposit_date  			as LDD ,
+			s.date_opened 		 			as OPD ,
+			s.date_closed		 			as CLD ,
+			c.closecode						as Close_Code ,
+			x.category						as Close_Code_CAT ,
+			x.description					as Close_Code_DES ,
+			s.FEDTAXID ,			 
+			s.FUNDINGABA ,
+			s.FUNDINGDDA ,			
+			k.mbankname 	as DEPOSIT_BANK,
+			s.REPCODE ,
+			s.projmthvol ,
+			i.repcode, 
+			i.REPNAME 		as REP_NAME , 
+			i.channel 		as REP_Channel,
+			z.city 			as City  , 
+			z.state_cd		as State , 
+			z.zip_cd		as Zip   ,
+				
+			nvl(b.trancount,		0) 		as PRD_TRN  , 
+			nvl(b.netvolume,		0) 		as PRD_VOL  , 
+		    nvl(b.stm_discount,	 	0) + nvl(b.stm_surcharge,		0) 		
+		  + nvl(b.stm_authrevenue,	0) + nvl(b.stm_ind_plan,		0) 	+ nvl(b.stm_data_cap,		0) 		
+		  - nvl(b.tsys_intchg,	 	0) - nvl(b.assesments,		 	0) 			
+		  + nvl(b.dscv_discount,	0) - nvl(b.dscv_interchange,	0) 	- nvl(b.dscv_assessments,	0) 
+		  + nvl(b.pin_db_discount,	0) - nvl(b.pin_db_interchange,  0)	- nvl(b.pin_db_assessments,	0) 	- nvl(b.pin_db_switch_fee,0) 
+											as PRD_DIA ,
+		   nvl(b.stm_discount,   	0) + nvl(b.stm_surcharge, 0) - nvl(b.pin_db_auth_income,0)
+		 + nvl(b.stm_authrevenue,	0)	+ nvl(b.stm_ind_plan,  0)
+		 + nvl(b.stm_data_cap,   	0) - nvl(b.tsys_intchg,   0)	-nvl(b.assesments,0) 
+											as PRD_BC_DIA ,
+		   nvl(b.stm_discount,   	0) + nvl(b.stm_surcharge, 0) - nvl(b.pin_db_auth_income,0)
+		 + nvl(b.stm_authrevenue,	0)	+ nvl(b.stm_ind_plan,  0)
+		 + nvl(b.stm_data_cap,   	0) 		as PRD_BC_D ,
+		   nvl(b.tsys_intchg,    	0)		as PRD_BC_I ,
+		   nvl(b.assesments,	 	0) 		as PRD_BC_A ,
+		   nvl(b.stm_feerevenue, 	0) - nvl(b.pos_fee,0)
+		   									as PRD_O , 
+		   nvl(b.STM_INCOME,		0)		as PRD_TOT_CST  ,
+
+			nvl(r.trancount,	 	0) 		as RTM_TRN  , 
+			nvl(r.netvolume,	 	0) 		as RTM_VOL  , 
+		   nvl(r.stm_discount,	 	0) + nvl(r.stm_surcharge,		0) 		
+		 + nvl(r.stm_authrevenue,	0) + nvl(r.stm_ind_plan,		0) 	+ nvl(r.stm_data_cap,		0) 		
+		 - nvl(r.tsys_intchg,	 	0) - nvl(r.assesments,		 	0) 			
+		 + nvl(r.dscv_discount,	 	0) - nvl(r.dscv_interchange,	0) 	- nvl(r.dscv_assessments,	0) 
+		 + nvl(r.pin_db_discount,	0) - nvl(r.pin_db_interchange, 0)	- nvl(r.pin_db_assessments,	0) 	- nvl(r.pin_db_switch_fee,0) 
+											as RTM_DIA 	,
+		   nvl(r.stm_feerevenue,0) - nvl(r.pos_fee,0)
+		   									as RTM_O 	,  
+		   nvl(r.STM_INCOME,		0)   	as RTM_TOT_CST
+
+
+		from 		browser.merch_tran_info 		b 
+		inner join 	bsnsdevl.mid_owner 				z on b.mid = z.mid
+		left  join	browser.roll_mti				r on b.mid = r.mid and b.period = r.period
+		left  join	bsnsdevl.mid_relationship 		p on b.mid = p.mid
+		left  join  browser.merch_demo_info_master	s on b.mid = s.mid
+		left  join  dw.merchantmaster				c on b.mid = c.mid 
+		left  join  dw.close_code_description		x on c.closecode = x.close_code 
+		left  join	BSNSDEVL.REPINFO				i on s.repcode = i.repcode
+		left  join  BSNSDEVL.NAICS_LU				n on s.siccode = n.siccode		
+		left  join	BSNSDEVL.MARKET_INSIGHT_NAICS	m on n.NAICS_3 = m.NAICS3_CODE
+		left  join	dw.ababank						k on s.FUNDINGABA  = k.transroutingnumber and k.country = 'USA'
+		left  join	aep.merch_mid					d on b.mid = d.mid
+		left  join	aep.merch_mid_addr 				z on d.mid_tag = z.mid_tag and z.addr_type_tag = '2'
+
+		where 		b.period = &DATE.
+		and			z.Channel not in ('MSP', 'AIR', 'CAN', 'CBS', 'HCM', 'ISVD')
+		and			z.rdc 		<> 'POWERTRACK' 
+		and			z.sponsorid <> '0006'
+		and			s.merchstatus_ecp not in ('C','D')
+		and			p.group_ not in 
+					('RM', 'AIRLN', 'HCARE', 'HOSP') 
+		and			s.siccode not in ('6010', '6011')
+		and			p.rel_long not in 
+					('TNT AMERICAN PROMOTIONAL EVENTS', 'AUCTION PAY', 'PAMS LUNCHROOM PREMIERES') ) ;
+	disconnect from oracle ;
+quit; 
+
+data &DSN. ;
+ set Loc_srs.&DSN. ;
+ PRD_DIAO  = sum(PRD_DIA, PRD_o);
+ RTM_DIAO  = sum(RTM_DIA, RTM_o);
+
+ Format CSR CSC $50.;
+ CSR = compress(Channel)||"-"||compress(Sub_Channel)||"-"||compress(SC_ROUTE) ;
+ CSC = compress(Channel)||"-"||compress(Sub_Channel) ;
+
+ * Total Cost / Volume ;
+ if RTM_TOT_CST  <= 0 or rtm_vol = 0 then RTM_CST_to_VOL = 0;
+ else RTM_CST_to_VOL = abs(rtm_tot_cst) /abs( rtm_vol);
+
+ if PRD_TOT_CST  <= 0 or prd_vol = 0 then PRD_CST_to_VOL = 0;
+ else PRD_CST_to_VOL = abs(PRD_tot_cst) /abs(PRD_vol);
+
+ * DIA / VOL - Effective Rate ;
+ PRD_DIA_to_VOL = abs(PRD_DIA) /abs(PRD_VOL); if PRD_DIA_to_VOL < 0 then PRD_DIA_to_VOL = 0;
+ RTM_DIA_to_VOL = abs(RTM_DIA) /abs(RTM_VOL); if RTM_DIA_to_VOL < 0 then RTM_DIA_to_VOL = 0;
+
+ * O Fees / Total Cost ;
+ if RTM_TOT_CST  <= 0 or RTM_O = 0 then RTM_FEE_to_CST = 0;
+ else RTM_FEE_to_CST = abs(rtm_o) /abs( rtm_tot_cst);
+ if RTM_FEE_to_CST <0  then RTM_FEE_to_CST = 0;
+
+ if PRD_TOT_CST  <= 0 or PRD_O = 0 then PRD_FEE_to_CST = 0;
+ else PRD_FEE_to_CST = abs(PRD_O) /abs(PRD_TOT_CST);
+ if  PRD_FEE_to_CST < 0 then PRD_FEE_to_CST = 0;
+
+ * Avg. Month vs Current Month ;
+ CRR_VOL_PCH  = ((PRD_VOL)  - (RTM_VOL /12)) / (RTM_VOL /12) ; if CRR_VOL_PCH  = . then CRR_VOL_PCH  = 0;  
+ CRR_TRN_PCH  = ((PRD_TRN)  - (RTM_TRN /12)) / (RTM_TRN /12) ; if CRR_TRN_PCH  = . then CRR_TRN_PCH  = 0;
+ CRR_DIA_PCH  = ((PRD_DIA)  - (RTM_DIA /12)) / (RTM_DIA /12) ; if CRR_DIA_PCH  = . then CRR_DIA_PCH  = 0; 
+ CRR_O_PCH    = ((PRD_O)    - (RTM_O   /12)) / (RTM_O   /12) ; if CRR_O_PCH    = . then CRR_O_PCH    = 0;
+ CRR_DIAO_PCH = ((PRD_DIAO) - (RTM_DIAO/12)) / (RTM_DIAO/12) ; if CRR_DIAO_PCH = . then CRR_DIAO_PCH = 0;
+
+ * TiM ;
+ TID = floor ((intck('day',datepart(OPD), datepart(period)) - (day(datepart(period)) < day(datepart(OPD))))) ;
+ TIY = TID / 365 ;
+ TIM = TIY*12;
+
+ * Clean State ;
+ State = upcase(State);
+
+ * Activation Speed - Days till Deposit ;
+ DTD = (datepart(FDD) - datepart(OPD));
+ if dtd < 0 then dtd = 0;
+
+ * Deposit Bank , does the MID bank with a partner? ;
+ if upcase(compress(DEPOSIT_BANK)) in (
+'U.S.BANKNATIONALASSOCIATION' ,
+'KEYBANKNATIONALASSOCIATION' ,	
+'REGIONSBANK' ,
+'UNIONBANK,N.A.' ,
+'BANKOFTHEWEST' ,
+'SUNTRUSTBANK' ,
+'FIRSTTENNESSEEBANK,NATIONAL' ,
+'BANCOSANTANDERPUERTORICO' ,
+'CITYNATIONALBANK' ,
+'UMBBANK,N.A.' ,
+'WHITNEYNATIONALBANK' ,
+'ZIONSFIRSTNATIONALBANK' ,
+'UMBBANKCOLORADO,NATIONALAS' ,
+'IBERIABANK' ,
+'MECHANICSBANK' ,
+'UMBNATIONALBANKOFAMERICA' ,
+'UMBBANKARIZONA,NATIONALASS' ,
+'MECHANICSANDFARMERSBANK' ,
+'UNIONBANK' ,
+'THEFARMERSANDMECHANICSBANK' ,
+'IBERIABANKFSB' ,
+'MECHANICSCO-OPERATIVEBANK' ,
+'MECHANICSSAVINGSBANK'
+ ) then BNK_wPRT = 1; else BNK_wPRT = 0;
+
+ * Estimated Lifetime Revenue ELR ;
+
+ ELR 		=      (abs(RTM_DIAO)/12*TIM);
+ 
+ if Monthly_Min_Fee < 0 then Monthly_Min_Fee = 0;
+ Rename Monthly_Min_Fee = MMF;
+
+ /* cats groups */
+
+IF SIC_Code = 
+            '5309' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '5964' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '5960' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '7251' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '5691' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '7512' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '4899' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '7535' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '5940' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '7296' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '5945' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '4121' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '5311' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '5611' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '5977' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '3504' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '7829' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '5719' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '7349' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '5310' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '1731' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '5950' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '5995' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '7549' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '7929' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '7622' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '7379' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '4812' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '0780' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '5331' then  IND_GRP = '7' ; Else IF SIC_Code = 
+            '5169' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '8071' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '4582' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '5051' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '3617' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '5039' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '5192' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '7933' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '4900' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '3604' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '5718' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '8050' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '3501' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '7996' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '8062' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '5046' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '8911' then  IND_GRP = '11' ; Else IF SIC_Code = 
+
+            '4131' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '5722' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '5943' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '5511' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '5044' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '8299' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '5532' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '8641' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '8011' then  IND_GRP = '11' ; Else IF SIC_Code = 
+            '3051' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3058' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3357' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3366' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3395' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3427' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3435' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3513' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3535' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3542' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3565' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3597' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3613' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3614' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3619' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3621' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3631' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3637' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3638' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3644' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3649' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3652' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3685' then  IND_GRP = '1' ; Else IF SIC_Code = 
+
+            '3694' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3704' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3710' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3715' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3754' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3778' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3791' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3807' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3812' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3813' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3829' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '4111' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '4511' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '4821' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '5963' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '6211' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '7321' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '7339' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '8241' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '9402' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '9405' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '4119' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '8249' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '5972' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '6012' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '6051' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '7998' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '9222' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3751' then  IND_GRP = '1' ; Else IF SIC_Code = 
+            '3665' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '8220' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '5734' then  IND_GRP = '13' ; Else IF SIC_Code = 
+
+            '7211' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '4789' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '7361' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '7513' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '8734' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '5599' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '5931' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '7629' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '3695' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '9399' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '5965' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '7932' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '8211' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '5021' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '9311' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '9211' then  IND_GRP = '13' ; Else IF SIC_Code = 
+            '5681' then  IND_GRP = '14' ; Else IF SIC_Code = 
+            '7523' then  IND_GRP = '14' ; Else IF SIC_Code = 
+            '5251' then  IND_GRP = '14' ; Else IF SIC_Code = 
+            '7641' then  IND_GRP = '14' ; Else IF SIC_Code = 
+            '1771' then  IND_GRP = '14' ; Else IF SIC_Code = 
+            '7012' then  IND_GRP = '14' ; Else IF SIC_Code = 
+            '7623' then  IND_GRP = '14' ; Else IF SIC_Code = 
+            '2791' then  IND_GRP = '14' ; Else IF SIC_Code = 
+            '3512' then  IND_GRP = '14' ; Else IF SIC_Code = 
+            '4411' then  IND_GRP = '14' ; Else IF SIC_Code = 
+            '3559' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '3640' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '3660' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '3750' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5139' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5592' then  IND_GRP = '5' ; Else IF SIC_Code = 
+
+            '7994' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5541' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5932' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '3562' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5462' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5935' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '7221' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '1740' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '3510' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5968' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '3692' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '7230' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5976' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5261' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5699' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '7216' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '7534' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5655' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5973' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5651' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '2842' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5970' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '4457' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '7531' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5714' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5812' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5499' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5999' then  IND_GRP = '5' ; Else IF SIC_Code = 
+            '5451' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5697' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '7375' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '8031' then  IND_GRP = '6' ; Else IF SIC_Code = 
+
+            '5941' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '8049' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '4225' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '8041' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5631' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '7299' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5122' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '8651' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5971' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5996' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5733' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5994' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '7538' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '7995' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '6513' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '7298' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5947' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5411' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5422' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5571' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5533' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '7311' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5199' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5131' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '7032' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '4468' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '8021' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5013' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5811' then  IND_GRP = '6' ; Else IF SIC_Code = 
+            '5193' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '5998' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '5712' then  IND_GRP = '8' ; Else IF SIC_Code = 
+
+            '5949' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '7393' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '7699' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '5211' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '6300' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '5561' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '8351' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '5200' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '7261' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '7997' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '8999' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '5944' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '7333' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '7372' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '1711' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '5814' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '4214' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '5813' then  IND_GRP = '8' ; Else IF SIC_Code = 
+            '3502' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '3503' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '3722' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '5111' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '7993' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '9950' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '1761' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '8398' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '5099' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '7999' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '1799' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '7911' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '4722' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '4814' then  IND_GRP = '2' ; Else IF SIC_Code = 
+
+            '8099' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '8931' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '9223' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '5912' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '7395' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '5993' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '7992' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '7011' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '0742' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '5621' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '5399' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '5942' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '5992' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '8661' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '5074' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '8043' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '7542' then  IND_GRP = '2' ; Else IF SIC_Code = 
+            '3514' then  IND_GRP = '4' ; Else IF SIC_Code = 
+            '3615' then  IND_GRP = '4' ; Else IF SIC_Code = 
+            '3690' then  IND_GRP = '4' ; Else IF SIC_Code = 
+            '3767' then  IND_GRP = '4' ; Else IF SIC_Code = 
+            '5937' then  IND_GRP = '4' ; Else IF SIC_Code = 
+            '5962' then  IND_GRP = '4' ; Else IF SIC_Code = 
+            '5978' then  IND_GRP = '4' ; Else IF SIC_Code = 
+            '8675' then  IND_GRP = '4' ; Else IF SIC_Code = 
+            '9754' then  IND_GRP = '4' ; Else IF SIC_Code = 
+            '4784' then  IND_GRP = '9' ; Else IF SIC_Code = 
+            '7273' then  IND_GRP = '9' ; Else IF SIC_Code = 
+            '5271' then  IND_GRP = '9' ; Else IF SIC_Code = 
+            '7276' then  IND_GRP = '9' ; Else IF SIC_Code = 
+            '5300' then  IND_GRP = '9' ; Else IF SIC_Code = 
+            '5698' then  IND_GRP = '9' ; Else IF SIC_Code = 
+
+            '7297' then  IND_GRP = '9' ; Else IF SIC_Code = 
+            '7832' then  IND_GRP = '9' ; Else IF SIC_Code = 
+            '3508' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '3515' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '3709' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '4816' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '7277' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '7941' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '5641' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '8042' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '1520' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '8111' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '5072' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '7692' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '5047' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '5661' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '2741' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '5085' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '7922' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '5231' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '5065' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '7399' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '5975' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '7392' then  IND_GRP = '3' ; Else IF SIC_Code = 
+            '1750' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '7519' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '5598' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '7631' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '5921' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '8244' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '5713' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '5933' then  IND_GRP = '10' ; Else IF SIC_Code = 
+
+            '5441' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '5946' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '5198' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '5521' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '5948' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '7342' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '5735' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '7217' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '7338' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '0763' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '7278' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '7841' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '5983' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '5551' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '5732' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '4215' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '5172' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '5969' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '8699' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '7033' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '5045' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '7991' then  IND_GRP = '10' ; Else IF SIC_Code = 
+            '3687' then  IND_GRP = '12' ; Else IF SIC_Code = 
+            '5137' then  IND_GRP = '12' ; Else IF SIC_Code = 
+            '3390' then  IND_GRP = '12' ; Else IF SIC_Code = 
+            '7210' then  IND_GRP = '12' ; Else IF SIC_Code = 
+            '7394' then  IND_GRP = '12' ; Else IF SIC_Code = 
+            '4829' then  IND_GRP = '12' ; Else IF SIC_Code = 
+            '5094' then  IND_GRP = '12' ;
+IF State = 
+            'DE' then  GEO_GRP = '8' ; Else IF State = 'LA' 
+            then  GEO_GRP = '8' ; Else IF State = 'BA' then  
+            GEO_GRP = '8' ; Else IF State = 'NV' then  GEO_GRP 
+            = '3' ; Else IF State = 'ON' then  GEO_GRP = '3' ; 
+            Else IF State = 'ME' then  GEO_GRP = '3' ; Else IF 
+            State = 'NC' then  GEO_GRP = '3' ; Else IF State = 
+            'NH' then  GEO_GRP = '3' ; Else IF State = 'PR' 
+            then  GEO_GRP = '3' ; Else IF State = 'ND' then  
+            GEO_GRP = '3' ; Else IF State = 'IN' then  GEO_GRP 
+
+            = '3' ; Else IF State = 'MN' then  GEO_GRP = '3' ; 
+            Else IF State = 'NM' then  GEO_GRP = '3' ; Else IF 
+            State = 'WI' then  GEO_GRP = '3' ; Else IF State = 
+            'FL' then  GEO_GRP = '3' ; Else IF State = 'AR' 
+            then  GEO_GRP = '3' ; Else IF State = 'ID' then  
+            GEO_GRP = '3' ; Else IF State = 'QC' then  GEO_GRP 
+            = '3' ; Else IF State = 'MA' then  GEO_GRP = '6' ; 
+            Else IF State = 'SK' then  GEO_GRP = '6' ; Else IF 
+            State = 'MD' then  GEO_GRP = '6' ; Else IF State = 
+            'AZ' then  GEO_GRP = '6' ; Else IF State = 'UT' 
+            then  GEO_GRP = '6' ; Else IF State = 'VA' then  
+            GEO_GRP = '6' ; Else IF State = 'KY' then  GEO_GRP 
+            = '6' ; Else IF State = 'WV' then  GEO_GRP = '6' ; 
+            Else IF State = 'NT' then  GEO_GRP = '2' ; Else IF 
+            State = 'NU' then  GEO_GRP = '2' ; Else IF State = 
+            'YT' then  GEO_GRP = '2' ; Else IF State = 'fl' 
+            then  GEO_GRP = '2' ; Else IF State = 'ri' then  
+            GEO_GRP = '2' ; Else IF State = 'tx' then  GEO_GRP 
+            = '2' ; Else IF State = 'NB' then  GEO_GRP = '2' ; 
+            Else IF State = 'GA' then  GEO_GRP = '7' ; Else IF 
+            State = 'NE' then  GEO_GRP = '7' ; Else IF State = 
+            'CA' then  GEO_GRP = '7' ; Else IF State = 'OR' 
+            then  GEO_GRP = '7' ; Else IF State = 'TN' then  
+            GEO_GRP = '7' ; Else IF State = 'OH' then  GEO_GRP 
+            = '7' ; Else IF State = 'BC' then  GEO_GRP = '5' ; 
+            Else IF State = 'NJ' then  GEO_GRP = '5' ; Else IF 
+            State = 'AL' then  GEO_GRP = '5' ; Else IF State = 
+            'NY' then  GEO_GRP = '5' ; Else IF State = 'OK' 
+            then  GEO_GRP = '5' ; Else IF State = 'IA' then  
+            GEO_GRP = '5' ; Else IF State = 'MO' then  GEO_GRP 
+            = '5' ; Else IF State = 'CT' then  GEO_GRP = '4' ; 
+            Else IF State = 'WY' then  GEO_GRP = '4' ; Else IF 
+
+            State = 'MB' then  GEO_GRP = '4' ; Else IF State = 
+            'NS' then  GEO_GRP = '4' ; Else IF State = 'MI' 
+            then  GEO_GRP = '4' ; Else IF State = 'PA' then  
+            GEO_GRP = '4' ; Else IF State = 'MS' then  GEO_GRP 
+            = '4' ; Else IF State = 'NL' then  GEO_GRP = '4' ; 
+            Else IF State = 'SD' then  GEO_GRP = '4' ; Else IF 
+            State = 'TX' then  GEO_GRP = '4' ; Else IF State = 
+            'AB' then  GEO_GRP = '4' ; Else IF State = 'KS' 
+            then  GEO_GRP = '4' ; Else IF State = 'CO' then  
+            GEO_GRP = '4' ; Else IF State = 'IL' then  GEO_GRP 
+            = '4' ; Else IF State = 'VT' then  GEO_GRP = '4' ; 
+            Else IF State = 'MT' then  GEO_GRP = '4' ; Else IF 
+            State = 'AK' then  GEO_GRP = '1' ; Else IF State = 
+            'DC' then  GEO_GRP = '1' ; Else IF State = 'PE' 
+            then  GEO_GRP = '1' ; Else IF State = 'SC' then  
+            GEO_GRP = '1' ; Else IF State = 'HI' then  GEO_GRP 
+            = '1' ; Else IF State = 'RI' then  GEO_GRP = '1' ; 
+            Else IF State = 'WA' then  GEO_GRP = '1' ;
+
+ 	IF CSR = 
+            'CPOS-CPOS_IND-CPOS' then  CSR_GRP = '6' ; Else IF 
+            CSR = 'MSP-PREM2_ANB-NEW' then  CSR_GRP = '6' ; 
+            Else IF CSR = 'ALLI-SUNTRUST-ALLI' then  CSR_GRP = 
+            '6' ; Else IF CSR = 'MSP-PREMIER2-HOLD' then  
+            CSR_GRP = '6' ; Else IF CSR = 
+            'ASSN-UNSPECASSN-ASSN' then  CSR_GRP = '6' ; Else 
+            IF CSR = 'FHMS-FHMS-FHMS' then  CSR_GRP = '6' ; 
+            Else IF CSR = 'ALLI-IBERIA-ALLI' then  CSR_GRP = 
+            '6' ; Else IF CSR = 'ASSN-MBNA-ASSN' then  CSR_GRP 
+            = '6' ; Else IF CSR = 'ASSN-USB_ASSN-ASSN' then  
+            CSR_GRP = '6' ; Else IF CSR = 'CPOS-CPOS_DIR-CPOS' 
+            then  CSR_GRP = '6' ; Else IF CSR = 
+            'CBS-MANAGED-PREF' then  CSR_GRP = '6' ; Else IF 
+            CSR = 'CBS-UNMANAGED-REFM' then  CSR_GRP = '6' ; 
+            Else IF CSR = 'ALLI-UNION_BANK-ALLI' then  CSR_GRP 
+            = '8' ; Else IF CSR = 'MSP-CORE1-ANBN' then  
+            CSR_GRP = '8' ; Else IF CSR = 'CBS-MANAGED-FISR' 
+            then  CSR_GRP = '8' ; Else IF CSR = 
+            'CAN-UNREGPDCAN-CAN' then  CSR_GRP = '8' ; Else IF 
+            CSR = 'NOVA-UNMAN_CBS-NOVA' then  CSR_GRP = '8' ; 
+            Else IF CSR = 'MSP-PREM2_ANB-ANBN' then  CSR_GRP = 
+            '8' ; Else IF CSR = 'MSP-UNREGPDMSP-NEW' then  
+            CSR_GRP = '8' ; Else IF CSR = 'ALLI-REGIONS-ALLI' 
+            then  CSR_GRP = '8' ; Else IF CSR = 
+            'ALLI-CRESTAR-ALLI' then  CSR_GRP = '8' ; Else IF 
+            CSR = 'ASSN-BACKOUT-ASSN' then  CSR_GRP = '8' ; 
+            Else IF CSR = 'MSP-CORE1_ANB-ANBN' then  CSR_GRP = 
+            '8' ; Else IF CSR = 'NOVA-UNMAN_MSP-NOVA' then  
+            CSR_GRP = '8' ; Else IF CSR = 
+            'NOVA-UNSPECNOVA-NOVA' then  CSR_GRP = '8' ; Else 
+            IF CSR = 'CAN-MSP_CAN-CAN' then  CSR_GRP = '5' ; 
+            Else IF CSR = 'CBS-UNMANAGED-AGNT' then  CSR_GRP = 
+            '5' ; Else IF CSR = 'CAN-DIRECT-CAN' then  CSR_GRP 
+            = '5' ; Else IF CSR = 'MSP-CORE1-USBN' then  
+            CSR_GRP = '5' ; Else IF CSR = 'CAN-COSTCO_CAN-CAN' 
+            then  CSR_GRP = '5' ; Else IF CSR = 
+            'CBS-UNMANAGED-CASH' then  CSR_GRP = '5' ; Else IF 
+            CSR = 'MSP-PREMIER1-CBNK' then  CSR_GRP = '5' ; 
+            Else IF CSR = 'MSP-BASE-NEW' then  CSR_GRP = '5' ; 
+            Else IF CSR = 'CBS-UNMANAGED-REF' then  CSR_GRP = 
+            '5' ; Else IF CSR = 'ASSN-NOVA_ASSN-ASSN' then  
+            CSR_GRP = '5' ; Else IF CSR = 'CAN-ALLI_CAN-CAN' 
+            then  CSR_GRP = '11' ; Else IF CSR = 
+            'MSP-PREMIER1-NEW' then  CSR_GRP = '11' ; Else IF 
+            CSR = 'CAN-CBS_CAN-CANH' then  CSR_GRP = '11' ; 
+            Else IF CSR = 'HCM-HCM-HCM' then  CSR_GRP = '11' ; 
+            Else IF CSR = 'CBS-MANAGED-CSAG' then  CSR_GRP = 
+
+            '2' ; Else IF CSR = 'CBS-UNMANAGED-ACQD' then  
+            CSR_GRP = '2' ; Else IF CSR = 'MSP-BASE-ANBN' then  
+            CSR_GRP = '2' ; Else IF CSR = 'CBS-UNMANAGED-FISR' 
+            then  CSR_GRP = '2' ; Else IF CSR = 
+            'MSP-PREMIER1-USB' then  CSR_GRP = '2' ; Else IF 
+            CSR = 'ALLI-BOW-ALLI' then  CSR_GRP = '2' ; Else IF 
+            CSR = 'ALLI-FTB-ALLI' then  CSR_GRP = '2' ; Else IF 
+            CSR = 'CAN-INT_SEC-CAN' then  CSR_GRP = '2' ; Else 
+            IF CSR = 'DIR-DIR_COSTCO-DIR' then  CSR_GRP = '2' ; 
+            Else IF CSR = 'CBS-MANAGED-ACQD' then  CSR_GRP = 
+            '2' ; Else IF CSR = 'ALLI-KMS-ALLI' then  CSR_GRP = 
+            '2' ; Else IF CSR = 'MSP-CORE1-HOLD' then  CSR_GRP 
+            = '2' ; Else IF CSR = 'ALLI-WACHOVIA-ALLI' then  
+            CSR_GRP = '2' ; Else IF CSR = 'CBS-MANAGED-AGNT' 
+            then  CSR_GRP = '2' ; Else IF CSR = 'ALLI-USB-ALLI' 
+            then  CSR_GRP = '2' ; Else IF CSR = 'SAN-SAN-SAN' 
+            then  CSR_GRP = '2' ; Else IF CSR = 'AIR-DELTA-AIR' 
+            then  CSR_GRP = '1' ; Else IF CSR = 
+            'ALLI-MECHANICS-ALLI' then  CSR_GRP = '1' ; Else IF 
+            CSR = 'CAN-CBS_CAN-CAN' then  CSR_GRP = '1' ; Else 
+            IF CSR = 'CAN-MSP_CAN-CANH' then  CSR_GRP = '1' ; 
+            Else IF CSR = 'CAN-UNMAN_CAN-CAN' then  CSR_GRP = 
+            '1' ; Else IF CSR = 'CAN-WACH_CAN-CAN' then  
+            CSR_GRP = '1' ; Else IF CSR = 'MSP-BASE_ANB-NEW' 
+            then  CSR_GRP = '1' ; Else IF CSR = 
+            'MSP-CORE1-CBNK' then  CSR_GRP = '1' ; Else IF CSR 
+            = 'MSP-CORE1-MSPO' then  CSR_GRP = '1' ; Else IF 
+            CSR = 'MSP-PREM1_ANB-ANBN' then  CSR_GRP = '1' ; 
+            Else IF CSR = 'MSP-UNREGPDMSP-ANBN' then  CSR_GRP = 
+            '1' ; Else IF CSR = 'NOVA-UN_SPEC-NOVA' then  
+            CSR_GRP = '1' ; Else IF CSR = 'SAN-SAN_UNMAN-SAN' 
+            then  CSR_GRP = '1' ; Else IF CSR = 
+
+            'MSP-BASE_ANB-ANBN' then  CSR_GRP = '1' ; Else IF 
+            CSR = 'MSP-PREMIER2-CBNK' then  CSR_GRP = '1' ; 
+            Else IF CSR = 'ISVD-HEALTH-DIR-ISVD' then  CSR_GRP 
+            = '1' ; Else IF CSR = 'LIT-LIGHTNING-LIT' then  
+            CSR_GRP = '1' ; Else IF CSR = 'CAN-ASSN_CAN-CAN' 
+            then  CSR_GRP = '1' ; Else IF CSR = 
+            'CAN-UNMAN_CAN-CANH' then  CSR_GRP = '1' ; Else IF 
+            CSR = 'DIR-UNSPEC_DIR-DIR' then  CSR_GRP = '4' ; 
+            Else IF CSR = 'MSP-UNREGPDMSP-MSPO' then  CSR_GRP = 
+            '4' ; Else IF CSR = 'ASSN-DPV-ASSN' then  CSR_GRP = 
+            '4' ; Else IF CSR = 'MSP-UNREGPDMSP-USB' then  
+            CSR_GRP = '4' ; Else IF CSR = 'NOVA-KEY_FSP-NOVA' 
+            then  CSR_GRP = '4' ; Else IF CSR = 
+            'ALLI-UNSPECALLI-ALLI' then  CSR_GRP = '4' ; Else 
+            IF CSR = 'ALLI-SFG-ALLI' then  CSR_GRP = '4' ; Else 
+            IF CSR = 'CAN-UNREGPDCAN-CANH' then  CSR_GRP = '4' 
+            ; Else IF CSR = 'CPOS-CPOS_US-CPOS' then  CSR_GRP = 
+            '3' ; Else IF CSR = 'MSP-UNREGPDMSP-ANBI' then  
+            CSR_GRP = '3' ; Else IF CSR = 'ALLI-WHITNEY-ALLI' 
+            then  CSR_GRP = '3' ; Else IF CSR = 
+            'CBS-UNMANAGED-CSAG' then  CSR_GRP = '3' ; Else IF 
+            CSR = 'MSP-UNREGPDMSP-CBNK' then  CSR_GRP = '3' ; 
+            Else IF CSR = 'ALLI-KMS-ALL2' then  CSR_GRP = '10' 
+            ; Else IF CSR = 'CBS-MANAGED-FISA' then  CSR_GRP = 
+            '10' ; Else IF CSR = 'ALLI-ZIONS-ALLI' then  
+            CSR_GRP = '10' ; Else IF CSR = 
+            'FHMS-ASSN_FHMS-FHMS' then  CSR_GRP = '10' ; Else 
+            IF CSR = 'CAN-ANB_CAN-CAN' then  CSR_GRP = '10' ; 
+            Else IF CSR = 'ASSN-COSTCO-COST' then  CSR_GRP = 
+            '10' ; Else IF CSR = 'MSP-PREMIER1-HOLD' then  
+            CSR_GRP = '7' ; Else IF CSR = 'MSP-PREMIER2-NEW' 
+            then  CSR_GRP = '7' ; Else IF CSR = 'ALLI-UMB-ALLI' 
+
+            then  CSR_GRP = '7' ; Else IF CSR = 
+            'DIR-DIR_GOVT-DIR' then  CSR_GRP = '7' ; Else IF 
+            CSR = 'MSP-UNREGPDMSP-HOLD' then  CSR_GRP = '7' ; 
+            Else IF CSR = 'ALLI-CITYNATL-ALLI' then  CSR_GRP = 
+            '9' ; Else IF CSR = 'MSP-CORE1-NEW' then  CSR_GRP = 
+            '9' ; Else IF CSR = 'CPOS-CPOS_ORIG-CPOS' then  
+            CSR_GRP = '9' ; Else IF CSR = 'CBS-MANAGED-REF' 
+            then  CSR_GRP = '9' ;
+
+ /* &PTY_GRP_SC. */
+
+ if IND_GRP = 4  then IND_GRP = 9;
+
+ if GEO_GRP = .  then GEO_GRP = 7;
+ if GEO_GRP = 1  then GEO_GRP = 8;
+
+ if CSR_GRP = 2  then CSR_GRP = 9;
+
+
+ if GEO_GRP = '' then GEO_GRP = '2';
+ if IND_GRP = '' then IND_GRP = '4';
+ if CSR_GRP = '' then CSR_GRP = '3';
+
+ /* model var creation */
+
+ PRD_CST_to_VOL_LN = log(PRD_CST_to_VOL); 
+ if PRD_CST_to_VOL_LN=.  then PRD_CST_to_VOL_LN = 0;
+
+ CRR_VOL_PCH_LN = log(CRR_VOL_PCH);
+ if CRR_VOL_PCH_LN = . then CRR_VOL_PCH_LN = 0;
+
+ RTM_FEE_to_CST_X3 = RTM_FEE_to_CST**3;
+ if RTM_FEE_to_CST_X3 =. then RTM_FEE_to_CST_X3=0;
+
+ X_PRD_CST_to_VOL_DTD =(PRD_CST_to_VOL)*(DTD);
+ if X_PRD_CST_to_VOL_DTD=. then X_PRD_CST_to_VOL_DTD=0;
+
+ X_RTM_DIA_CRR_TRN_PCH = (RTM_DIA)*(CRR_TRN_PCH);
+ if X_RTM_DIA_CRR_TRN_PCH = . then X_RTM_DIA_CRR_TRN_PCH = 0;
+ 
+ X_RTM_DIA_ELR = (RTM_DIA)*(ELR);
+ if X_RTM_DIA_ELR = . then X_RTM_DIA_ELR = 0;
+
+ X_RTM_TRN_CRR_VOL_PCH = (RTM_TRN)*(CRR_VOL_PCH);
+ if X_RTM_TRN_CRR_VOL_PCH = . then X_RTM_TRN_CRR_VOL_PCH =0;
+
+ X_CRR_TRN_PCH_CRR_O_PCH = (CRR_TRN_PCH)*(CRR_O_PCH);
+ if X_CRR_TRN_PCH_CRR_O_PCH = . then X_CRR_TRN_PCH_CRR_O_PCH = 0;
+
+
+ X_PRD_TRN_RTM_DIA_to_VOL =(PRD_TRN)*(RTM_DIA_to_VOL);
+ if X_PRD_TRN_RTM_DIA_to_VOL = . then X_PRD_TRN_RTM_DIA_to_VOL =0;
+
+run ;
+
+proc freq data = &DSN.;
+tables 
+GEO_GRP 
+IND_GRP 
+CSR_GRP;
+run;
+
+/*
+
+GEO_GRP 
+IND_GRP 
+CSR_GRP
+
+PRD_CST_to_VOL_LN
+CRR_VOL_PCH_LN
+RTM_FEE_to_CST
+RTM_FEE_to_CST_X3
+
+X_PRD_CST_to_VOL_DTD
+X_RTM_DIA_CRR_TRN_PCH
+X_RTM_DIA_ELR
+X_RTM_TRN_CRR_VOL_PCH
+X_CRR_TRN_PCH_CRR_O_PCH
+X_PRD_TRN_RTM_DIA_to_VOL
+		
+*/
+
+proc logistic inmodel = mod.CAS_MODEL ;
+  score data = &DSN. out = &DSN._v2 ;
+run ;
+
+Proc Means data = &DSN._v2 n nmiss;
+ var P_1;
+run;
+
+proc rank 
+	data = &DSN._v2
+	out  = &DSN._v3
+	Groups = 10 ;
+ var P_1;
+ Ranks CAS ;
+Run;
+
+data &DSN._v4;
+ set &DSN._v3;
+ CAS=CAS+1;
+ Keep MID CAS;
+run;
+
+Proc Freq data = &DSN._v4;
+	Tables CAS;
+Run;
+
+proc sql;
+	drop   table 	bsnsdevl.T_CUST_AS_&YYYMM. ;
+	create table 	bsnsdevl.T_CUST_AS_&YYYMM. like &DSN._v4 ;
+	insert into  	bsnsdevl.T_CUST_AS_&YYYMM. select * from &DSN._v4 ;
+quit;
+
+proc sql;
+ connect to oracle (user = &U. password = &P. path= 'NEWDW01.WORLD');
+ 	execute (grant select on bsnsdevl.T_CUST_AS_&YYYMM. to RBAILEY)  by oracle;
+ quit;
+
+FileName test EMail 'Samuel.Seibert@Elavon.com' EMAILID ='Outlook' ;
+
+DATA _null_ ;
+	File test
+	SUBJECT	= "Table Containing Customer Attrition Deciles for &YYYMM."
+	TO		= 'Robert.Bailey@Elavon.com'
+	CC		= 'Samuel.Seibert@Elavon.com'
+	BCC 	= 'Hokaten@gmail.com'
+	;
+	Put 'Hi Robert, ' ;
+	Put ' ' ;
+	Put 'The table containing the customer attrition score for this month is:' ;
+	Put "BsnsDevl.T_CUST_AS_&YYYMM." ;
+	Put 'with two variables MID and CAS (Customer Attrition Score,' ;
+	Put 'the decile groups of the attrition prob.).' ;
+	Put ' ' ;
+	Put 'All the Best,' ;
+	Put 'Samuel RS';
+RUN ;
