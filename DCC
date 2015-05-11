@@ -1,0 +1,332 @@
+
+
+/*
+  _____                              _         _____                                        _____                              _             
+ |  __ \                            (_)       / ____|                                      / ____|                            (_)            
+ | |  | |_   _ _ __   __ _ _ __ ___  _  ___  | |    _   _ _ __ _ __ ___ _ __   ___ _   _  | |     ___  _ ____   _____ _ __ ___ _  ___  _ __  
+ | |  | | | | | '_ \ / _` | '_ ` _ \| |/ __| | |   | | | | '__| '__/ _ \ '_ \ / __| | | | | |    / _ \| '_ \ \ / / _ \ '__/ __| |/ _ \| '_ \ 
+ | |__| | |_| | | | | (_| | | | | | | | (__  | |___| |_| | |  | | |  __/ | | | (__| |_| | | |___| (_) | | | \ V /  __/ |  \__ \ | (_) | | | |
+ |_____/ \__, |_| |_|\__,_|_| |_| |_|_|\___|  \_____\__,_|_|  |_|  \___|_| |_|\___|\__, |  \_____\___/|_| |_|\_/ \___|_|  |___/_|\___/|_| |_|
+          __/ |                                                                     __/ |                                                    
+         |___/                                                                     |___/                                                     
+
+   ____                         _               _ _         
+  / __ \                       | |             (_) |        
+ | |  | |_ __  _ __   ___  _ __| |_ _   _ _ __  _| |_ _   _ 
+ | |  | | '_ \| '_ \ / _ \| '__| __| | | | '_ \| | __| | | |
+ | |__| | |_) | |_) | (_) | |  | |_| |_| | | | | | |_| |_| |
+  \____/| .__/| .__/ \___/|_|   \__|\__,_|_| |_|_|\__|\__, |
+        | |   | |                                      __/ |
+        |_|   |_|                                     |___/                       
+
+
+
+
+Note: Last Updated: 2014-10-28
+In the marketing materials  
+> DCC Annual Reg. Fee is $25 per-MID
+> Merchant DCC Rebate
+
+*/
+
+/*
+		Table of Contents
+	1.) What is the raw amount of currency the account could have used DCC for?
+	2.) How much currency did the account actually convert?
+	3.) What is the ratio between the potential and the actual?
+	4.) What is the estimated revenue Elavon could capture if the account 
+*/
+
+
+/*
+	STEP 1: Determine the amount of raw currency an account could convert through DCC
+*/
+
+
+%Macro DCC_OPP ;
+
+/* %let curr_date = 01FEB2014; */
+
+%let curr_date = %sysfunc(today(),Date9.) ;
+
+/*
+	BIN Def.
+
+	826 = GBP Pound Sterling
+	392 = JPY Japanese Yen
+	124 = CAD Canadian Dollar
+	036 = AUD Australian Dollar
+	978 = EUR Euro
+
+*/
+
+
+proc sql;
+	connect to oracle (user = &U. password = &P. path= 'NEWDW01.WORLD') ;
+	create table DCC_BINs as select * from connection to oracle ( Select 
+	c.bin_currency, c.bin_number
+	from 	dw.dcc_bin_lkup c
+	where 	c.bin_currency 	in ('826', '392', '124', '036', '978')) ;
+	disconnect from oracle ;
+quit ;
+
+data DCC_BINs ; set DCC_BINs ; bin_nbr = compress(put(bin_number,13.)) ; run ;
+
+proc sql ;
+	drop   table 	bsnsdevl.DCC_BINs ;
+	create table 	bsnsdevl.DCC_BINs like DCC_BINs ;
+	insert into  	bsnsdevl.DCC_BINs select * from DCC_BINs ;
+quit ;
+
+data _null_ ; 
+	Call SymputX
+	('Day',Upcase(Compress("'"||put(intnx('month',"&Curr_Date."d,-1),date9.)||"'"))) ; 
+run ;
+data _null_ ; 
+	Call SymputX
+	('First_Day',Upcase(Compress("'"||put(intnx('month',"&Curr_Date."d,-1),date9.)||"'"))) ; 
+run ;
+%let curr_year = %sysfunc(year("&First_Day."D)) ;
+data _null_ ; 
+ format eom date9.; eom = intnx('month',"&Day."d,0,'end') ; 
+ Call SymputX ('NoD',day(eom)) ; 
+run ;
+ 
+data _null_ ;
+  if month("&First_Day."D) < 10 then do ; 
+	call symputx('curr_month',compress("0"||put(month("&First_Day."D),3.))) ; 
+  end ; 
+  else do ;
+    call symputx('curr_month',compress(put(month("&First_Day."D),3.))) ; 
+  end ;
+run ;
+
+%do i = 1 %to &NoD. ;
+
+	%if &i. > 1 %then %do;
+	data _null_ ; Call SymputX
+		('Day',Upcase(Compress("'"||put(intnx('day',"&First_Day."d,&i.),date9.)||"'"))) ; 
+	run;
+	%end;
+
+	%if &i. = 1 %then %do;
+		%let Day = &First_Day;
+	%end;
+
+	proc sql;
+		connect to oracle (user = &U. password = &P. path= 'NEWDW01.WORLD');
+		create table DCC_OPP_&i. as select * from connection to oracle ( Select 
+		b.settlement_date , b.mid ,	 
+		c.bin_currency  as CURRENCYCODE	, 
+		count(a.amount) as ITEMCOUNT	, 
+	 	sum(a.amount) as AMOUNT		
+
+		from 	txn.vm_edc_items 	a , 
+				txn.batch_hdrs 		b ,
+				bsnsdevl.DCC_BINs 	c
+
+		where 	b.settlement_date 	= &day.
+		and 	a.acct_prefix	 	= c.bin_number
+		and 	b.settlement_date 	= a.settlement_date
+		and 	b.terminal_id 		= a.terminal_id
+		and 	b.batch_number 		= a.batch_number
+		and 	a.card_type 		in ('MC','VI')	
+		group by b.settlement_date, b.mid, c.bin_currency );
+		disconnect from oracle;
+	quit;
+
+%Put The Day is: &Day ;
+
+%end;
+
+proc sql ;
+	select memname into :DCC_OPP Separated by ' ' from dictionary.tables 
+	where libname = 'WORK' and memname like 'DCC_OPP___' ;
+quit ;
+
+data dcc_opp ; set &dcc_opp. ; run ;
+
+proc sql;
+	create table dcc_opp_&Curr_Year._&curr_month. as select
+	mid ,	 
+	CURRENCYCODE   as Currency_Code , 
+	sum(ITEMCOUNT) as Item_Count , 
+	sum(AMOUNT)    as Amount 
+ 	from dcc_opp group by mid, CURRENCYCODE;
+quit;
+
+data dcc_opp_&Curr_Year._&curr_month. ;
+ set dcc_opp_&Curr_Year._&curr_month. ;
+
+
+  /* 826 = GBP Pound Sterling */
+
+
+		if Currency_Code = 826 then do ;  
+	DCC_OPP_GBP_IC = Item_Count ;
+	DCC_OPP_GBP_AM = Amount ;
+ end;
+
+
+ /* 392 = JPY Japanese Yen */
+
+
+ else	if Currency_Code = 392 then do ;  
+	DCC_OPP_JPY_IC = Item_Count ;
+	DCC_OPP_JPY_AM = Amount ;
+ end;
+
+
+ /* 124 = CAD Canadian Dollar */
+
+
+ else	if Currency_Code = 124 then do ;  
+	DCC_OPP_CAD_IC = Item_Count ;
+	DCC_OPP_CAD_AM = Amount ;
+ end;
+
+
+ /* 978 = EUR Euro */
+
+
+ else	if Currency_Code = 978 then do ;  
+	DCC_OPP_EUR_IC = Item_Count ;
+	DCC_OPP_EUR_AM = Amount ;
+ end;
+
+
+ /* 036 = AUD Australian Dollar */
+
+
+ else	if Currency_Code = 36 then do ;  
+	DCC_OPP_AUD_IC = Item_Count ;
+	DCC_OPP_AUD_AM = Amount ;
+ end;
+
+ IC = sum(DCC_OPP_GBP_IC, DCC_OPP_JPY_IC, DCC_OPP_AUD_IC, DCC_OPP_EUR_IC, DCC_OPP_CAD_IC);
+ AM = sum(DCC_OPP_GBP_AM, DCC_OPP_JPY_AM, DCC_OPP_AUD_AM, DCC_OPP_EUR_AM, DCC_OPP_CAD_AM);
+
+run; 
+
+proc sql;
+	create table dcc_opp_&Curr_Year._&curr_month. as select
+
+	mid ,	
+ 
+	sum(IC) 	    	as DCC_OPP_IC , 
+	sum(DCC_OPP_GBP_IC)	as DCC_OPP_GBP_IC ,
+	sum(DCC_OPP_JPY_IC) as DCC_OPP_JPY_IC ,
+	sum(DCC_OPP_AUD_IC) as DCC_OPP_AUD_IC ,
+	sum(DCC_OPP_EUR_IC) as DCC_OPP_EUR_IC ,
+	sum(DCC_OPP_CAD_IC) as DCC_OPP_CAD_IC ,
+
+	sum(AM)    			as DCC_OPP_AM ,
+	sum(DCC_OPP_GBP_AM)	as DCC_OPP_GBP_AM ,
+	sum(DCC_OPP_JPY_AM) as DCC_OPP_JPY_AM ,
+	sum(DCC_OPP_AUD_AM) as DCC_OPP_AUD_AM ,
+	sum(DCC_OPP_EUR_AM) as DCC_OPP_EUR_AM ,
+	sum(DCC_OPP_CAD_AM) as DCC_OPP_CAD_AM
+
+ 	from dcc_opp_&Curr_Year._&curr_month. group by mid;
+quit;
+
+Proc Stdize data =  dcc_opp_&Curr_Year._&curr_month.  Missing = 0 reponly out = dcc_opp_&Curr_Year._&curr_month. ;
+	var   _numeric_ ;
+run;
+
+proc sql;
+	drop   table 	bsnsdevl.dcc_opp_&Curr_Year._&curr_month. ;
+	create table 	bsnsdevl.dcc_opp_&Curr_Year._&curr_month. like dcc_opp_&Curr_Year._&curr_month. ;
+	insert into  	bsnsdevl.dcc_opp_&Curr_Year._&curr_month. select * from dcc_opp_&Curr_Year._&curr_month. ;
+	drop   table	dcc_opp_&Curr_Year._&curr_month. ;
+	drop   table	bsnsdevl.DCC_BINs ;
+	drop   table	DCC_BINs ;
+quit;
+
+proc datasets lib = work NoDetails NoList ; delete dcc_opp &dcc_opp. ; Quit ;
+
+%mend DCC_OPP;
+
+/*
+	Autoreports Process
+	1.) What is the current date ?
+	2.) Has the key table already been created for the prior month ?
+	3.) Is the data avaible for the prior month ?
+	4.) If the data has not been built and the data is avaliable then build the data.
+
+*/
+
+/* If you attempt to print or manipulate the non-existent data set */
+/* an error will be generated.  To prevent the error, check to see */
+/* if the data set exists, then conditionally execute the step(s). */
+
+
+%macro checkds(dsn);
+  %Global ds_check ;
+  %if %sysfunc(exist(&dsn)) %then %do;
+    %let ds_check = 1;
+  %end;
+  %else %do;
+  	%let ds_check = 0;
+  %end;
+%mend checkds;
+
+
+%Macro AR_DCC;
+
+/* 1.) -- What is the current date ? */
+
+%let curr_date = %sysfunc(today(),Date9.) ;
+
+data _null_ ; 
+	Call SymputX
+	('First_Day',Upcase(Compress("'"||put(intnx('month',"&Curr_Date."d,-1),date9.)||"'"))) ; 
+run ;
+
+%let curr_year = %sysfunc(year("&First_Day."D)) ;
+
+data _null_ ;
+  if month("&First_Day."D) < 10 then do ; 
+	call symputx('curr_month',compress("0"||put(month("&First_Day."D),3.))) ; 
+  end ; 
+  else do ;
+    call symputx('curr_month',compress(put(month("&First_Day."D),3.))) ; 
+  end ;
+run ;
+
+/* 2.) Has the key table already been created for the prior month ? */
+
+%checkds(bsnsdevl.dcc_opp_&Curr_Year._&curr_month.)
+
+%Put Does the DS for last month exist? &ds_check. 1/0 = Y/N;
+
+/* 3.) Is the data avaible for the prior month ? */
+
+%IF &ds_check. = 0 %then %do;
+	%DCC_OPP
+
+FileName test EMail 'Samuel.Seibert@Elavon.com' EMAILID ='Outlook' ;
+
+DATA _null_ ;
+	File test
+	SUBJECT	= "DCC is Complete for &Curr_Year. &Curr_Month."
+	TO		= 'Samuel.Seibert@Elavon.com'
+	CC		= 'Hokaten@gmail.com'
+	;
+	Put 'Hey You! ^_- ' ;
+	Put ' ' ;
+	Put 'The table containing the DCC Opportunity for' ;
+	Put "&Curr_Year. &Curr_Month. is now complete." ;
+	Put ' ' ;
+	Put 'That is right, SCIENCE just happened.' ;
+	Put ' ' ;
+	Put 'Take Care Friend,' ;
+	Put 'Samuel RS';
+RUN ;
+
+%end;
+
+%Mend AR_DCC ;
+
+%AR_DCC
+
