@@ -1,0 +1,1643 @@
+
+/* CAM BoB 2015 Performance */
+
+data SRS_CURR_CAM_LIST ; 
+ set bsnsdevl.cam_plan_2_2015 ;
+run ;
+
+proc sort data = SRS_CURR_CAM_LIST NoDupKey; By MID;  Run;
+
+proc sql;
+	drop   table 	bsnsdevl.SRS_CURR_CAM_LIST ;
+	create table 	bsnsdevl.SRS_CURR_CAM_LIST like SRS_CURR_CAM_LIST ;
+	insert into  	bsnsdevl.SRS_CURR_CAM_LIST select * from SRS_CURR_CAM_LIST ;
+	drop table		SRS_CURR_CAM_LIST ;
+quit;
+
+%let CAM_SOURCE = BSNSDEVL.SRS_CURR_CAM_LIST ; 
+
+	%Macro CAM_Status ;
+
+	%let Starting_Period = '01DEC2014' ;
+
+	%do x = 1 %to 4;
+
+	/* The Current Period */
+	data _null_ ; 
+		Call Symputx
+		('Period',Upcase(Compress("'"||put(intnx('month',&Starting_Period.d,&x.),date9.)||"'"))) ; 
+	run;
+	/* Current Period End */
+	data _null_ ; 
+		Call Symputx
+		('Period_End',Upcase(Compress("'"||put(intnx('month',&Starting_Period.d,&x.,'E'),date9.)||"'"))) ; 
+	run;
+	/* Current Period minus 2 months */
+	data _null_ ; 
+		Call Symputx
+		('Period_Minus_2',Upcase(Compress("'"||put(intnx('month',&Period.d,-2,'B'),date9.)||"'"))) ; 
+	run;
+	/* The Current Period minus 11 months */
+	data _null_ ; 
+		Call SymputX
+		('Period_Minus_11',Upcase(Compress("'"||put(intnx('month',&Period.d,-11),date9.)||"'"))) ; 
+	run ;
+	/* The Current Year */
+	%let Curr_Year     = %sysfunc(year(&Period.D)) ;
+	/* The Beginning of the Current Year */
+	%let CBY = "01JAN&CURR_YEAR." ;
+	data _null_ ; 
+		Call SymputX
+		('Curr_Beg_Year',Upcase(Compress("'"||put(&CBY.d,date9.)||"'"))) ; 
+	run ;
+	/* The Current Period minus 12 months */
+	data _null_ ; 
+		Call SymputX
+		('Period_Minus_12',Upcase(Compress("'"||put(intnx('month',&Period.d,-12),date9.)||"'"))) ; 
+	run;
+	/* The Last year */
+	%let Last_Year     = %sysfunc(year(&Period_Minus_12.D)) ;
+	/* The beginning of the last year */
+	%let LBY = "01JAN&Last_YEAR." ;
+	data _null_ ; 
+		Call SymputX
+		('Last_Beg_Year',Upcase(Compress("'"||put(&LBY.d,date9.)||"'"))) ; 
+	run ;
+	data _null_ ; 
+		Call SymputX
+		('Mon_Name',Upcase(substr(Compress(Put(&Period.D,monname.)),1,3))); 
+	run;
+	data _null_;
+	 if month(&Period.D) < 10 then 
+		call symputx('Mon',compress("0"||put(month(&Period.D),4.)));
+	 else call symputx('Mon',put(month(&Period.D),4.));
+	run;
+
+	%let T_Name 	= CAM_BoB_Status_&Curr_Year._&Mon.;
+	%let CAM_SOURCE = BSNSDEVL.SRS_CURR_CAM_LIST; 
+
+	%Put 
+	The defined macro values are,
+		Period: &period. 
+		The Period year: &Curr_Year. 
+		The Period month: &mon_name. 
+		The Dataset name: &t_name 
+
+		Period End &Period_End.
+		Period minus  2 months: &Period_Minus_2.
+		Period minus 12 months: &Period_Minus_12.
+		Period minus 11 months: &Period_Minus_11.
+
+		The Beginning of this year 01 &CBY
+		The Beginning of this year 02 &Curr_Beg_Year
+		The Beginning of last year 01 &LBY
+		The Beginning of last year 01 &Last_Beg_Year
+	;
+
+	proc sql;
+		connect to oracle (user=&U. password=&P. path='NEWDW01.WORLD');
+		create table AH_Output_File_v1 as select * 
+		from connection to oracle (select * from &CAM_SOURCE );
+		disconnect from oracle;
+	quit ;
+
+	proc sql;
+		connect to oracle (user = &U. password = &P. path= 'NEWDW01.WORLD');
+
+	create table &T_Name. as select * from connection to oracle ( select 
+	a.addressable , 
+	a.channel , 
+	a.rdc , 
+	c.sponsorid , 
+	c.assocnumber , 
+	z.mid , 
+	c.dbaname , 
+	c.merchstatus_ecp , 
+	c.date_opened , 
+	c.date_closed , 
+	nvl(c.siccode,'0000') as SICCODE , 
+	e.sic_description , 
+	e.sector_rollup , 
+	e.sub_rollup , 
+	e.naics_6 , 
+	e.naics_6_description , 
+	e.naics_5 , 
+	e.naics_5_description , 
+	e.naics_4 ,
+	e.naics_4_description , 
+	e.naics_3 , 
+	e.naics_3_description , 
+	e.naics_2 , 
+	e.naics_2_description , 
+	x.*,
+	c.fedtaxid , 
+	c.fundingaba , 
+	c.fundingdda , 
+
+	d.group_ 						as REL_TYPE , 
+	d.rel_long 						as RELATIONSHIP 
+
+	from 	&CAM_SOURCE.					z ,
+			bsnsdevl.mid_owner 				a , 
+			browser.merch_demo_info_master 	c , 
+			bsnsdevl.mid_relationship 		d , 
+			bsnsdevl.naics_lu 				e ,
+			bsnsdevl.market_insight_naics	x
+		
+	where 	z.mid = a.mid (+)
+	and 	z.mid = c.mid (+)
+	and 	z.mid = d.mid (+)
+	and 	e.NAICS_3 = X.NAICS3_CODE (+)
+	and 	nvl(c.siccode,'0000') = e.siccode (+) );
+	disconnect from oracle;
+	quit;
+
+	proc sql;
+	connect to oracle (user = &U. password = &P. path= 'NEWDW01.WORLD');
+
+	create table RTM as select * from connection to oracle ( select 
+	z.mid , 
+	b.Period ,
+	nvl(b.trancount,0)  			as BC_TRANCOUNT , 
+	nvl(b.netvolume,0) 				as BC_VOLUME , 
+	nvl(b.stm_discount,0) 		+ nvl(b.stm_surcharge,0) 	- nvl(b.pin_db_auth_income,0)
+	+ nvl(b.stm_authrevenue,0)	+ nvl(b.stm_ind_plan,0)
+	+ nvl(b.stm_data_cap,0) 	- nvl(b.tsys_intchg,0)	 	- nvl(b.assesments,0) as BC_DIA , 
+
+	nvl(b.dscv_trancount,0) 		as DSCV_TRANCOUNT , 
+	nvl(b.dscv_volume,0) 			as DSCV_VOLUME  , 
+	nvl(b.dscv_discount,0) 		- nvl(b.dscv_interchange,0)	- nvl(b.dscv_assessments,0)
+	 								as DSCV_DIA , 
+
+	nvl(b.pin_db_trancount,0) 		as PIN_DB_TRANCNT , 
+	nvl(b.pin_db_volume,0) 			as PIN_DB_VOLUME  , 
+	nvl(b.pin_db_discount,0) 		+ nvl(b.pin_db_auth_income,0)
+	- nvl(b.pin_db_interchange,0) 	- nvl(b.pin_db_assessments,0) - nvl(b.pin_db_switch_fee,0) 	
+									as PIN_DB_DIA ,
+
+	nvl(b.stm_discount,0) 			+ nvl(b.stm_surcharge,0) 		- nvl(b.pin_db_auth_income,0)
+	+ nvl(b.stm_authrevenue,0)		+ nvl(b.stm_ind_plan,0) 		+ nvl(b.stm_data_cap,0) 	
+	- nvl(b.tsys_intchg,0)			- nvl(b.assesments,0) 			+ nvl(b.dscv_discount,0) 
+	- nvl(b.dscv_interchange,0) 	- nvl(b.dscv_assessments,0) 	+ nvl(b.pin_db_discount,0) 
+	+ nvl(b.pin_db_auth_income,0)	- nvl(b.pin_db_interchange,0) 	- nvl(b.pin_db_assessments,0) 
+	- nvl(b.pin_db_switch_fee,0) 						as MID_DIA , 
+
+	nvl(b.stm_feerevenue,0) 		- nvl(b.pos_fee,0) 	as OTHER_REV , 
+
+									  nvl(b.pos_fee,0) 	as EQUIP_REV , 
+
+	nvl(b.stm_discount,0) 			+ nvl(b.stm_surcharge,0) 		- nvl(b.pin_db_auth_income,0)
+	+ nvl(b.stm_authrevenue,0)		+ nvl(b.stm_ind_plan,0)			+ nvl(b.stm_data_cap,0)
+	- nvl(b.tsys_intchg,0)			- nvl(b.assesments,0) 			+ nvl(b.dscv_discount,0) 
+	- nvl(b.dscv_interchange,0)		- nvl(b.dscv_assessments,0)		+ nvl(b.pin_db_discount,0) 
+	+ nvl(b.pin_db_auth_income,0) 	- nvl(b.pin_db_interchange,0) 	- nvl(b.pin_db_assessments,0) -
+	 nvl(b.pin_db_switch_fee,0)		+ nvl(b.stm_feerevenue,0) 		- nvl(b.pos_fee,0) 
+	as MID_DIAO
+
+	from 	&CAM_SOURCE.					z ,		
+			browser.roll_mti 				b  
+				
+	where 	z.mid = b.mid (+)
+	and 	b.period = &Period. );
+
+	disconnect from oracle;
+	quit;
+
+	/* MID Residual RTM */
+
+	proc sql;
+	connect to oracle (user = &U. password = &P. path= 'NEWDW01.WORLD');
+
+	create table MID_R_RTM as select * from connection to oracle (select 
+			a.MID, sum(nvl(a.amount,0)) as MID_R 
+			from browser.mth_mid_residual a inner join &CAM_SOURCE. b on a.mid = b.mid
+			where a.period between &Period_Minus_11. and &Period. group by a.MID);
+
+	/* MID Current YTD ( VOL, TRN, DIA, O, DIAO ) */
+
+	create table CURR_YTD as select * from connection to oracle (select		
+			a.mid, 			 sum(nvl(a.trancount,0)) as CURR_YTD_TRN ,
+						     sum(nvl(a.netvolume,0)) as CURR_YTD_VOL ,
+		   	sum(nvl(a.stm_discount,	 	0) + nvl(a.stm_surcharge,		0) 		
+		 	+ 	nvl(a.stm_authrevenue, 	0) + nvl(a.stm_ind_plan,		0) 	+ nvl(a.stm_data_cap,0) 		
+		 	- 	nvl(a.tsys_intchg,	 	0) - nvl(a.assesments,		 	0) 			
+		 	+ 	nvl(a.dscv_discount,	0) - nvl(a.dscv_interchange,	0) 	- nvl(a.dscv_assessments,0) 
+		 	+ 	nvl(a.pin_db_discount, 	0) - nvl(a.pin_db_interchange, 	0)	- nvl(a.pin_db_assessments,	0) 	- nvl(a.pin_db_switch_fee,0))
+									as CURR_YTD_DIA ,
+			sum(nvl(a.stm_feerevenue,0) - nvl(a.pos_fee,0)) 
+									as CURR_YTD_O   ,
+
+			sum(nvl(a.pos_fee,0)) 	as CURR_YTD_E   ,
+
+			sum(nvl(a.stm_discount,0) 		+ nvl(a.stm_surcharge,0) 		- nvl(a.pin_db_auth_income,0)
+			+ nvl(a.stm_authrevenue,0)		+ nvl(a.stm_ind_plan,0)			+ nvl(a.stm_data_cap,0)
+			- nvl(a.tsys_intchg,0)			- nvl(a.assesments,0) 			+ nvl(a.dscv_discount,0) 
+			- nvl(a.dscv_interchange,0)		- nvl(a.dscv_assessments,0)		+ nvl(a.pin_db_discount,0) 
+			+ nvl(a.pin_db_auth_income,0) 	- nvl(a.pin_db_interchange,0) 	- nvl(a.pin_db_assessments,0) -
+	 		  nvl(a.pin_db_switch_fee,0)    + nvl(a.stm_feerevenue,0) 		- nvl(a.pos_fee,0))
+									as CURR_YTD_DIAO
+			from browser.merch_tran_info a inner join &CAM_SOURCE. b on a.mid = b.mid
+			where a.period between &Curr_Beg_Year. and &Period.    
+			group by a.MID );
+
+
+	/* MID Last YTD ( VOL, TRN, DIA, O, DIAO ) */
+
+
+	create table LAST_YTD as select * from connection to oracle (select 
+			a.mid, sum(nvl(a.trancount,0)) as LAST_YTD_TRN ,
+						 sum(nvl(a.netvolume,0)) as LAST_YTD_VOL ,
+		   	sum(nvl(a.stm_discount,	 	0) + nvl(a.stm_surcharge,		0) 		
+		 	+ 	nvl(a.stm_authrevenue, 	0) + nvl(a.stm_ind_plan,		0) 	+ nvl(a.stm_data_cap,0) 		
+		 	- 	nvl(a.tsys_intchg,	 	0) - nvl(a.assesments,		 	0) 			
+		 	+ 	nvl(a.dscv_discount,	0) - nvl(a.dscv_interchange,	0) 	- nvl(a.dscv_assessments,0) 
+		 	+ 	nvl(a.pin_db_discount, 	0) - nvl(a.pin_db_interchange, 	0)	- nvl(a.pin_db_assessments,	0) 	- nvl(a.pin_db_switch_fee,0))
+												as LAST_YTD_DIA ,
+			sum(nvl(a.stm_feerevenue,0) - nvl(a.pos_fee,0)) 
+												as LAST_YTD_O   ,
+						sum(nvl(a.pos_fee,0)) 	as LAST_YTD_E   ,
+		  sum(nvl(a.stm_discount,0) 		+ nvl(a.stm_surcharge,0) 		- nvl(a.pin_db_auth_income,0)
+			+ nvl(a.stm_authrevenue,0)		+ nvl(a.stm_ind_plan,0)			+ nvl(a.stm_data_cap,0)
+			- nvl(a.tsys_intchg,0)			- nvl(a.assesments,0) 			+ nvl(a.dscv_discount,0) 
+			- nvl(a.dscv_interchange,0)		- nvl(a.dscv_assessments,0)		+ nvl(a.pin_db_discount,0) 
+			+ nvl(a.pin_db_auth_income,0) 	- nvl(a.pin_db_interchange,0) 	- nvl(a.pin_db_assessments,0) -
+	 		  nvl(a.pin_db_switch_fee,0)    + nvl(a.stm_feerevenue,0) 		- nvl(a.pos_fee,0))
+												as LAST_YTD_DIAO
+			from browser.merch_tran_info a inner join &CAM_SOURCE. b on a.mid = b.mid
+			where a.period between &Last_Beg_Year. and &Period_Minus_12.    
+			group by a.MID);
+
+	/* MID Same Store Sales ( VOL, TRN, DIA, O, DIAO ) */
+
+	create table CURR_YOY as select * from connection to oracle (select		
+			a.mid, 			
+			1 as CURR_YOY , 
+			sum(nvl(a.trancount,0)) as CURR_YOY_TRN ,
+			sum(nvl(a.netvolume,0)) as CURR_YOY_VOL ,
+		   	sum(nvl(a.stm_discount,	 	0) + nvl(a.stm_surcharge,		0) 		
+		 	+ 	nvl(a.stm_authrevenue, 	0) + nvl(a.stm_ind_plan,		0) 	+ nvl(a.stm_data_cap,0) 		
+		 	- 	nvl(a.tsys_intchg,	 	0) - nvl(a.assesments,		 	0) 			
+		 	+ 	nvl(a.dscv_discount,	0) - nvl(a.dscv_interchange,	0) 	- nvl(a.dscv_assessments,0) 
+		 	+ 	nvl(a.pin_db_discount, 	0) - nvl(a.pin_db_interchange, 	0)	- nvl(a.pin_db_assessments,	0) 	- nvl(a.pin_db_switch_fee,0))
+									as CURR_YOY_DIA ,
+			sum(nvl(a.stm_feerevenue,0) - nvl(a.pos_fee,0)) 
+									as CURR_YOY_O   ,
+			sum(nvl(a.pos_fee,0)) 	as CURR_YOY_E   ,
+			sum(nvl(a.stm_discount,0) 		+ nvl(a.stm_surcharge,0) 		- nvl(a.pin_db_auth_income,0)
+			+ nvl(a.stm_authrevenue,0)		+ nvl(a.stm_ind_plan,0)			+ nvl(a.stm_data_cap,0)
+			- nvl(a.tsys_intchg,0)			- nvl(a.assesments,0) 			+ nvl(a.dscv_discount,0) 
+			- nvl(a.dscv_interchange,0)		- nvl(a.dscv_assessments,0)		+ nvl(a.pin_db_discount,0) 
+			+ nvl(a.pin_db_auth_income,0) 	- nvl(a.pin_db_interchange,0) 	- nvl(a.pin_db_assessments,0) -
+	 		  nvl(a.pin_db_switch_fee,0)    + nvl(a.stm_feerevenue,0) 		- nvl(a.pos_fee,0))
+									as CURR_YOY_DIAO
+			from browser.merch_tran_info a inner join &CAM_SOURCE. b on a.mid = b.mid
+			where a.period = &Period.    
+			group by a.MID );
+
+	create table LAST_YOY as select * from connection to oracle (select		
+			a.mid, 			 
+			1 as LAST_YOY ,
+			sum(nvl(a.trancount,0)) as LAST_YOY_TRN ,
+			sum(nvl(a.netvolume,0)) as LAST_YOY_VOL ,
+		   	sum(nvl(a.stm_discount,	 	0) + nvl(a.stm_surcharge,		0) 		
+		 	+ 	nvl(a.stm_authrevenue, 	0) + nvl(a.stm_ind_plan,		0) 	+ nvl(a.stm_data_cap,0) 		
+		 	- 	nvl(a.tsys_intchg,	 	0) - nvl(a.assesments,		 	0) 			
+		 	+ 	nvl(a.dscv_discount,	0) - nvl(a.dscv_interchange,	0) 	- nvl(a.dscv_assessments,0) 
+		 	+ 	nvl(a.pin_db_discount, 	0) - nvl(a.pin_db_interchange, 	0)	- nvl(a.pin_db_assessments,	0) 	- nvl(a.pin_db_switch_fee,0))
+									as LAST_YOY_DIA ,
+			sum(nvl(a.stm_feerevenue,0) - nvl(a.pos_fee,0)) 
+									as LAST_YOY_O   ,
+			sum(nvl(a.pos_fee,0)) 	as LAST_YOY_E   ,
+			sum(nvl(a.stm_discount,0) 		+ nvl(a.stm_surcharge,0) 		- nvl(a.pin_db_auth_income,0)
+			+ nvl(a.stm_authrevenue,0)		+ nvl(a.stm_ind_plan,0)			+ nvl(a.stm_data_cap,0)
+			- nvl(a.tsys_intchg,0)			- nvl(a.assesments,0) 			+ nvl(a.dscv_discount,0) 
+			- nvl(a.dscv_interchange,0)		- nvl(a.dscv_assessments,0)		+ nvl(a.pin_db_discount,0) 
+			+ nvl(a.pin_db_auth_income,0) 	- nvl(a.pin_db_interchange,0) 	- nvl(a.pin_db_assessments,0) -
+	 		  nvl(a.pin_db_switch_fee,0)    + nvl(a.stm_feerevenue,0) 		- nvl(a.pos_fee,0))
+									as LAST_YOY_DIAO
+			from browser.merch_tran_info a inner join &CAM_SOURCE. b on a.mid = b.mid
+			where a.period = &Period_Minus_12.    
+			group by a.MID );
+
+	/* VAS --{ EGC , ECS , DEBIT , DCC }-- */
+
+	create table EGC as select * from connection to oracle (
+		select Distinct MID, 'Y' as EGC from aep.mersum_mersum where hasfrequency in ('1','Y'));
+
+	create table ECS as select *  from connection to oracle (
+		select Distinct MID, 'Y' as ECS from aep.mersum_mersum where hasecc = 'Y');
+
+	create table DBT as select * from connection to oracle (
+		select Distinct MID, 'Y' as DEBIT from dw.merchantcard where cardtypecode = 'DB' and captureind = '1');
+
+	create table DCC as select * from connection to oracle (
+		select Distinct MID, 'Y' as DCC from browser.merch_demo_info_master where has_dcc = 'Y');
+
+	/* VAS Product Opens */
+
+	create table VAS_SGN as select * from connection to oracle (
+		select 	Distinct MID, 
+				sum(case when Product_CD = 'AMEX' then 1 else 0 end) as AMEX ,
+				sum(case when Product_CD = 'CKSV' then 1 else 0 end) as CKSV ,
+				sum(case when Product_CD = 'DCC'  then 1 else 0 end) as DCC  ,
+				sum(case when Product_CD = 'ECS'  then 1 else 0 end) as ECS  ,
+				sum(case when Product_CD = 'EGC'  then 1 else 0 end) as EGC
+		from dw.mid_product_dates 
+		where 	date_type = 'SGN' 
+		and 	date_value between &period. and &Period_End.
+		group by MID);
+
+	/* Min Fees - Has the MID paid a Min. Fes within in the past three months */
+
+	create table MF as select * from connection to oracle ( 
+		Select Distinct a.MID, max(a.DISC_CHARGED) as MONTLY_MF
+			from 	dw.merchtrandetail a inner join &CAM_SOURCE. b on a.mid = b.mid
+			where 	a.Period 				between &Period_Minus_2. and &Period_End. 
+			and 	a.chg_type_number 	in ('00099', '0099')
+			and 	a.cardtype 			= 'MB'
+			Group By a.MID);
+
+	disconnect from oracle;
+	quit;
+
+	proc sql;
+		create table &T_Name. as select 
+		a.MID 					, 
+		a.Rel_Type 				,
+		a.Relationship 		 	,		
+		a.Channel 				,
+		a.RDC as Sub_Channel 	,
+		a.ASSIGN_REP 			,
+		a.MANAGER				,	
+		a.Segment				,
+		a.Sub_Segment			,
+
+		a.sponsorid 			, 
+		a.assocnumber 			, 
+		a.dbaname 				, 
+		a.SICCODE 				, 	 
+		a.fedtaxid 				, 
+		a.fundingaba 			, 
+		a.fundingdda 			, 
+
+		&Period.D as PRD Format=Date9.,
+
+		coalesce(z.BC_TRANCOUNT		, 0) 	as BC_TRANCOUNT	,
+		coalesce(z.BC_VOLUME 		, 0) 	as BC_VOLUME		,
+		coalesce(z.BC_DIA 			, 0) 	as BC_DIA			,
+		coalesce(z.DSCV_TRANCOUNT 	, 0) 	as DSCV_TRANCOUNT	,	
+		coalesce(z.DSCV_VOLUME 		, 0) 	as DSCV_VOLUME		,
+		coalesce(z.DSCV_DIA 		, 0) 	as DSCV_DIA		,
+		coalesce(z.PIN_DB_TRANCNT 	, 0) 	as PIN_DB_TRANCNT	,
+		coalesce(z.PIN_DB_VOLUME 	, 0) 	as PIN_DB_VOLUME 	,	
+		coalesce(z.PIN_DB_DIA		, 0) 	as PIN_DB_DIA		,
+		coalesce(z.MID_DIA	 		, 0) 	as MID_DIA			,
+		coalesce(z.OTHER_REV	  	, 0) 	as OTHER_REV		,
+		coalesce(z.MID_DIAO			, 0) 	as MID_DIAO 	   	,
+		coalesce(z.EQUIP_REV		, 0)	as EQUIP_REV		,
+
+		coalesce(b.MID_R,0) 		 		as MID_R 		 ,
+
+		coalesce(c.Curr_YTD_TRN  , 0) 		as Curr_YTD_TRN  ,
+		coalesce(c.Curr_YTD_VOL  , 0) 		as Curr_YTD_VOL  ,
+		coalesce(c.Curr_YTD_DIA  , 0) 		as Curr_YTD_DIA  ,
+		coalesce(c.Curr_YTD_O    , 0) 		as Curr_YTD_O    ,
+		coalesce(c.Curr_YTD_DIAO , 0) 		as Curr_YTD_DIAO ,
+		coalesce(c.CURR_YTD_E	 , 0)		as Curr_YTD_E	 ,
+
+		coalesce(d.Last_YTD_TRN  , 0) 		as Last_YTD_TRN  ,
+		coalesce(d.Last_YTD_VOL  , 0) 		as Last_YTD_VOL  ,
+		coalesce(d.Last_YTD_DIA  , 0) 		as Last_YTD_DIA  ,
+		coalesce(d.Last_YTD_O    , 0) 		as Last_YTD_O    ,
+		coalesce(d.Last_YTD_DIAO , 0) 		as Last_YTD_DIAO ,
+		coalesce(d.LAST_YTD_E	 , 0)		as Last_YTD_E	 ,
+
+		coalesce(cc.Curr_YOY	  , 0)		as Curr_YOY		 ,
+		coalesce(dd.Last_YOY	  , 0)		as Last_YOY		 ,
+
+		coalesce(cc.Curr_YOY_TRN  , 0) 		as Curr_YOY_TRN  ,
+		coalesce(cc.Curr_YOY_VOL  , 0) 		as Curr_YOY_VOL  ,
+		coalesce(cc.Curr_YOY_DIA  , 0) 		as Curr_YOY_DIA  ,
+		coalesce(cc.Curr_YOY_O    , 0) 		as Curr_YOY_O    ,
+		coalesce(cc.Curr_YOY_DIAO , 0) 		as Curr_YOY_DIAO ,
+		coalesce(cc.CURR_YOY_E	  , 0)		as Curr_YOY_E	 ,
+
+		coalesce(dd.Last_YOY_TRN  , 0) 		as Last_YOY_TRN  ,
+		coalesce(dd.Last_YOY_VOL  , 0) 		as Last_YOY_VOL  ,
+		coalesce(dd.Last_YOY_DIA  , 0) 		as Last_YOY_DIA  ,
+		coalesce(dd.Last_YOY_O    , 0) 		as Last_YOY_O    ,
+		coalesce(dd.Last_YOY_DIAO , 0) 		as Last_YOY_DIAO ,
+		coalesce(dd.LAST_YOY_E	  , 0)		as LAST_YOY_E	 ,
+
+		coalesceC(e.EGC,  'N')		  		as EGC_FLAG   ,	
+		coalesceC(f.ECS,  'N')		  		as ECS_FLAG   ,
+		coalesceC(g.DEBIT,'N')		  		as DEBIT_FLAG ,
+		coalesceC(h.DCC,  'N')		  		as DCC_FLAG	 ,
+
+		coalesce(VS.AMEX,	0)				as AMEX_SGN  ,
+		coalesce(VS.CKSV,	0)				as CKSV_SGN  ,
+		coalesce(VS.DCC,	0) 				as DCC_SGN   ,
+		coalesce(VS.ECS,	0) 				as ECS_SGN   ,
+		coalesce(VS.EGC,	0)				as EGC_SGN   ,
+		
+		coalesce(MF.MONTLY_MF, 0)			as P3MM_MF Label = "Past 3 Months Max Min Fee"
+
+		from 		AH_Output_File_v1 	a 
+		left join	RTM					z  on a.mid =  z.mid
+		left join	MID_R_RTM			b  on a.mid =  b.mid
+		left join	CURR_YTD			c  on a.mid =  c.mid
+		left join	LAST_YTD			d  on a.mid =  d.mid 
+		left join	CURR_YOY			cc on a.mid = cc.mid 
+		left join	LAST_YOY			dd on a.mid = dd.mid 
+		left join 	EGC					e  on a.mid =  e.mid 
+		left join 	ECS					f  on a.mid =  f.mid 
+		left join	DBT					g  on a.mid =  g.mid 
+		left join	DCC					h  on a.mid =  h.mid 
+		left join	VAS_SGN				VS on a.mid = VS.mid
+		left join	MF					MF on a.mid = mf.mid ;
+
+	Quit;
+
+	/* 
+		CID Level Metrics 
+		YOY YTD 
+		YOY SSS
+		BIZ CLS
+
+	*/
+
+	Proc SQL ;
+		Create Table CID_SUMS as select
+		Relationship ,
+
+		sum(LAST_YTD_DIAO) as REL_LST_YTD_DIAO	Label = "Rel Last YR YTD DIAO" , 
+		sum(CURR_YTD_DIAO) as REL_CRR_YTD_DIAO	Label = "Rel Curr YR YTD DIAO" ,
+		sum(MID_DIAO)	   as REL_RTM_DIAO		Label = "Rel Rolling 12  DIAO" ,
+		sum(Last_YOY_DIAO) as REL_LST_YOY_DIAO  Label = "Rel Lst Period  DIAO" ,
+		sum(Curr_YOY_DIAO) as REL_CRR_YOY_DIAO  Label = "Rel Cur Period  DIAO" ,
+
+		coalesce(sum(z.BC_TRANCOUNT)	, 0) 	as REL_BC_TRANCOUNT		Label = "Rel RTM BC Trancount"		,
+		coalesce(sum(z.BC_VOLUME) 		, 0) 	as REL_BC_VOLUME		Label = "Rel RTM BC Volume"			,
+		coalesce(sum(z.BC_DIA) 			, 0) 	as REL_BC_DIA			Label = "Rel RTM BC DIA"			,
+		coalesce(sum(z.DSCV_TRANCOUNT) 	, 0) 	as REL_DSCV_TRANCOUNT	Label = "Rel RTM DSCV Trancount"	,	
+		coalesce(sum(z.DSCV_VOLUME) 	, 0) 	as REL_DSCV_VOLUME		Label = "Rel RTM DSCV Volume"		,
+		coalesce(sum(z.DSCV_DIA) 		, 0) 	as REL_DSCV_DIA			Label = "Rel RTM DSCV DIA"			,
+		coalesce(sum(z.PIN_DB_TRANCNT) 	, 0) 	as REL_PIN_DB_TRANCNT	Label = "Rel RTM PIN DB Trancount"	,
+		coalesce(sum(z.PIN_DB_VOLUME) 	, 0) 	as REL_PIN_DB_VOLUME 	Label = "Rel RTM PIN DB Volume"		,	
+		coalesce(sum(z.PIN_DB_DIA)		, 0) 	as REL_PIN_DB_DIA		Label = "Rel RTM PIN DB DIA"		,
+		coalesce(sum(z.MID_DIA)	 		, 0) 	as REL_MID_DIA			Label = "Rel RTM DIA"				,
+		coalesce(sum(z.OTHER_REV)	  	, 0) 	as REL_OTHER_REV		Label = "Rel RTM OTHER RED"			,
+		coalesce(sum(z.MID_DIAO)		, 0) 	as REL_MID_DIAO 	   	Label = "Rel RTM DIAO"				,
+		coalesce(sum(z.EQUIP_REV)		, 0)	as REL_EQUIP_REV		Label = "Rel RTM "					,
+		coalesce(sum(z.MID_R),0) 		 		as REL_MID_R 			Label = "Rel RTM Residual"
+
+		from &T_Name. z
+		group by Relationship ;
+	Quit ;
+
+	data CID_SUMS ;
+	 set CID_SUMS ;
+	 Format REL_DIAO_TIER  $15. ;
+			if REL_RTM_DIAO > 5000 then REL_DIAO_TIER = 'C $5K+ '     ; 
+	 else	if REL_RTM_DIAO >  999 then REL_DIAO_TIER = 'B $1K - $5K' ; 
+	 else							    REL_DIAO_TIER = 'A < $999K'   ; 
+	run ;
+
+	proc sql;
+		create table &T_Name. as select a.*,
+
+		b.REL_LST_YTD_DIAO 		,
+		b.REL_CRR_YTD_DIAO 		,
+		b.REL_RTM_DIAO	   		,		
+		b.REL_LST_YOY_DIAO 		,
+		b.REL_CRR_YOY_DIAO 		,
+		b.REL_DIAO_TIER	   		,
+
+		b.REL_BC_TRANCOUNT 		,
+		b.REL_BC_VOLUME			,
+		b.REL_BC_DIA			,	
+		b.REL_DSCV_TRANCOUNT	,
+		b.REL_DSCV_VOLUME		,	
+		b.REL_DSCV_DIA			,	
+		b.REL_PIN_DB_TRANCNT	,
+		b.REL_PIN_DB_VOLUME 	,
+		b.REL_PIN_DB_DIA		,
+		b.REL_MID_DIA			,
+		b.REL_OTHER_REV			,
+		b.REL_MID_DIAO 	   		,
+		b.REL_EQUIP_REV			,
+		b.REL_MID_R 			
+
+		from 		&T_Name. a 
+		left join	CID_SUMS b on a.Relationship  = b.Relationship ;
+	quit ;
+
+	Proc Datasets Lib=work NoDetails NoList;
+		Delete 
+			RTM MID_R_RTM
+			CURR_YTD LAST_YTD
+			EGC ECS DBT DCC	
+			VAS_SGN MF CURR_YOY LAST_YOY ;
+	Quit;
+
+	%end;
+
+	Proc Sql;
+		Select distinct memname into :CAMBOB_DS Separated by ' '
+		from dictionary.tables where upcase(libname) = 'WORK' and upcase(memname) like 'CAM_BOB_STATUS%' ;
+	Quit;
+
+	Data loc_srs.CBS_Total ;
+	 set &CAMBOB_DS. ;
+	 		 	 Format REL_DIAO_TIER  $15. ;
+			if REL_RTM_DIAO > 5000 then REL_DIAO_TIER = 'C $5K+ '     ; 
+	 else	if REL_RTM_DIAO >  999 then REL_DIAO_TIER = 'B $1K - $5K' ; 
+	 else							    REL_DIAO_TIER = 'A < $999K'   ;
+	run ;
+
+	data CBS_Total_v2;
+	 set loc_srs.CBS_Total;
+
+	 * YOY YTD DIAO Growth ;
+	 Format  REL_YTD_YOY_DIAO_PC  Percent8.0 ;
+	 REL_YTD_YOY_DIAO_PC = ((abs(REL_CRR_YTD_DIAO) - abs(REL_LST_YTD_DIAO)) / abs(REL_LST_YTD_DIAO)); 
+	 if REL_LST_YTD_DIAO = 0 then REL_YTD_YOY_DIAO_PC = 0;
+	 REL_YTD_RD = abs(REL_CRR_YTD_DIAO) - abs(REL_LST_YTD_DIAO);
+			if REL_YTD_YOY_DIAO_PC < -0.05 then REL_YTD_YOY_DIAO_Group = '03 Decreasing' ;
+	 else 	if REL_YTD_YOY_DIAO_PC >  0.05 then REL_YTD_YOY_DIAO_Group = '01 Increasing' ;
+	 else 							     	    REL_YTD_YOY_DIAO_Group = '02 Sustaining' ;
+
+	 * YOY SSS DIAO Growth ;
+	 Format  REL_YOY_SSS_DIAO_PC  Percent8.0 ;
+
+	 if REL_LST_YOY_DIAO  ne 0 then do;
+	 REL_YOY_SSS_DIAO_PC = ((abs(REL_CRR_YOY_DIAO ) - abs(REL_LST_YOY_DIAO)) / abs(REL_LST_YOY_DIAO)); 
+	 REL_SSS_RD = abs(REL_CRR_YOY_DIAO) - abs(REL_LST_YOY_DIAO);
+			if REL_YOY_SSS_DIAO_PC < -0.05  then REL_YOY_SSS_DIAO_Group = '03 Decreasing' ;
+	 else 	if REL_YOY_SSS_DIAO_PC >  0.05  then REL_YOY_SSS_DIAO_Group = '01 Increasing' ;
+	 else 							     	     REL_YOY_SSS_DIAO_Group = '02 Sustaining' ;
+	 end;
+
+	run;
+
+	Proc Sort data = CBS_Total_v2 NoDupKey; 
+		By PRD Relationship MID; 
+	Run;
+
+	Proc Sort data = CBS_Total_v2 out = CBS_Rel_lvl NoDupKey; 
+		By PRD Relationship; 
+	Run;
+
+	* MIS ;
+
+	proc sql;
+		create table CBS_Rel_lvl as select a.*,
+		b.MRK_INSGT_SEGMENT 	as MIS  ,
+		b.MRK_INSGT_SUBSEGMENT  as MISS
+		from CBS_Rel_lvl a left join loc_srs.MID_SIC b on a.mid = b.mid ;
+	quit;
+
+	proc Sort data = CBS_Rel_lvl out = CBS_Rel_lvl NoDupKey; 
+		By PRD Relationship ; 
+	run;
+%mend;
+
+%CAM_Status
+
+FileName test EMail 'Samuel.Seibert@Elavon.com' EMAILID ='Outlook' ;
+
+DATA _null_ ;
+	File test
+	SUBJECT	= "CAM BoB Status is Finished"
+	TO		= 'Hokaten@gmail.com'
+	CC		= 'Samuel.Seibert@Elavon.com';
+	Put "Dawup";
+	Put ' ';
+	Put 'and there was silence.....';
+RUN ;
+
+
+
+proc contents data = CBS_Rel_lvl varnum ; run ;
+
+data CAMBOB_XPRT ;
+ Retain
+MID
+REL_TYPE
+RELATIONSHIP
+CHANNEL
+Sub_Channel
+ASSIGN_REP
+DBANAME
+SICCODE
+FEDTAXID
+FUNDINGABA
+FUNDINGDDA
+PRD
+Curr_YTD_TRN
+Curr_YTD_VOL
+Curr_YTD_DIA
+Curr_YTD_O
+Curr_YTD_DIAO
+Last_YTD_TRN
+Last_YTD_VOL
+Last_YTD_DIA
+Last_YTD_O
+Last_YTD_DIAO
+Curr_YOY_TRN
+Curr_YOY_VOL
+Curr_YOY_DIA
+Curr_YOY_O
+Curr_YOY_DIAO
+Last_YOY_TRN
+Last_YOY_VOL
+Last_YOY_DIA
+Last_YOY_O
+Last_YOY_DIAO
+REL_LST_YTD_DIAO
+REL_CRR_YTD_DIAO
+REL_RTM_DIAO
+REL_LST_YOY_DIAO
+REL_CRR_YOY_DIAO
+REL_DIAO_TIER
+REL_YTD_YOY_DIAO_PC
+REL_YTD_YOY_DIAO_Group
+ ;
+ set CBS_Rel_lvl;
+ Keep
+MID
+REL_TYPE
+RELATIONSHIP
+CHANNEL
+Sub_Channel
+ASSIGN_REP
+DBANAME
+SICCODE
+FEDTAXID
+FUNDINGABA
+FUNDINGDDA
+PRD
+Curr_YTD_TRN
+Curr_YTD_VOL
+Curr_YTD_DIA
+Curr_YTD_O
+Curr_YTD_DIAO
+Last_YTD_TRN
+Last_YTD_VOL
+Last_YTD_DIA
+Last_YTD_O
+Last_YTD_DIAO
+Curr_YOY_TRN
+Curr_YOY_VOL
+Curr_YOY_DIA
+Curr_YOY_O
+Curr_YOY_DIAO
+Last_YOY_TRN
+Last_YOY_VOL
+Last_YOY_DIA
+Last_YOY_O
+Last_YOY_DIAO
+REL_LST_YTD_DIAO
+REL_CRR_YTD_DIAO
+REL_RTM_DIAO
+REL_LST_YOY_DIAO
+REL_CRR_YOY_DIAO
+REL_DIAO_TIER
+REL_YTD_YOY_DIAO_PC
+REL_YTD_YOY_DIAO_Group
+ ;
+ MID = compress("'"||MID) ;
+run ;
+
+proc export 
+	data 		= CBS_Rel_lvl
+	dbms 		= csv
+	outfile	= 
+	"C:\Users\srseibe\Desktop\Task\Automated Reports\CAM BoB 2015_05_04 .csv"
+  	replace Label ;
+run ;
+
+%Let Current_Period = '01NOV2014'D;
+
+/*
+Title "Overall REL $ YoY" ;
+Proc SQL;
+	Select 
+	PRD ,
+	REL_YTD_YOY_DIAO_Group  ,
+	count(Relationship) 	as REL_CNT ,
+	sum(REL_LST_YTD_DIAO)   as REL_LST_YTD_DIAO ,
+	sum(REL_CRR_YTD_DIAO)   as REL_CRR_YTD_DIAO 
+
+	From 	 CBS_Rel_lvl 
+	where PRD = &Current_Period.
+	Group By PRD, REL_YTD_YOY_DIAO_Group ;
+Quit ;
+Title ;
+
+Title "C $5K+ -Group REL $ YoY" ;
+Proc SQL;
+	Select 
+	PRD ,
+	REL_YTD_YOY_DIAO_Group  ,
+	count(Relationship) 	as REL_CNT ,
+	sum(REL_LST_YTD_DIAO)   as REL_LST_YTD_DIAO ,
+	sum(REL_CRR_YTD_DIAO)   as REL_CRR_YTD_DIAO 
+
+	From 	CBS_Rel_lvl 
+	where	REL_DIAO_TIER = 'C $5K+ ' and PRD = &Current_Period.
+	Group By PRD, REL_YTD_YOY_DIAO_Group ;
+Quit ;
+Title;
+
+Title "B $1K-$5K -Group REL $ YoY" ;
+Proc SQL;
+	Select 
+	PRD ,
+	REL_YTD_YOY_DIAO_Group  ,
+	count(Relationship) 	as REL_CNT ,
+	sum(REL_LST_YTD_DIAO)   as REL_LST_YTD_DIAO ,
+	sum(REL_CRR_YTD_DIAO)   as REL_CRR_YTD_DIAO 
+
+	From 	CBS_Rel_lvl 
+	where	REL_DIAO_TIER = 'B $1K - $5K' and PRD = &Current_Period.
+	Group By PRD, REL_YTD_YOY_DIAO_Group ;
+Quit ;
+Title;
+
+Title "A <=$1K -Group REL $ YoY" ;
+Proc SQL;
+	Select 
+	PRD ,
+	REL_YTD_YOY_DIAO_Group  ,
+	count(Relationship) 	as REL_CNT ,
+	sum(REL_LST_YTD_DIAO)   as REL_LST_YTD_DIAO ,
+	sum(REL_CRR_YTD_DIAO)   as REL_CRR_YTD_DIAO 
+
+	From 	CBS_Rel_lvl 
+	where	REL_DIAO_TIER = 'A < $999K' and PRD = &Current_Period.
+	Group By PRD, REL_YTD_YOY_DIAO_Group ;
+Quit ;
+Title;
+
+Title "Overall REL $ YoY" ;
+Proc SQL;
+	Select 
+	PRD ,
+	REL_YTD_YOY_DIAO_Group  ,
+	count(Relationship) 	as REL_CNT ,
+	sum(REL_LST_YTD_DIAO)   as REL_LST_YTD_DIAO ,
+	sum(REL_CRR_YTD_DIAO)   as REL_CRR_YTD_DIAO 
+
+	From 	 CBS_Rel_lvl 
+	where PRD = &Current_Period.
+	Group By PRD, REL_YTD_YOY_DIAO_Group ;
+Quit ;
+Title ;
+
+Title "Overall REL $ YoY" ;
+Proc SQL;
+	Select 
+	PRD ,
+	REL_YTD_YOY_DIAO_Group  ,
+	REL_DIAO_TIER,
+	count(Relationship) 	as REL_CNT ,
+	sum(REL_LST_YTD_DIAO)   as REL_LST_YTD_DIAO ,
+	sum(REL_CRR_YTD_DIAO)   as REL_CRR_YTD_DIAO 
+
+	From 	 CBS_Rel_lvl 
+	where PRD = &Current_Period.
+	Group By PRD, REL_YTD_YOY_DIAO_Group, REL_DIAO_TIER ;
+Quit ;
+Title ;
+
+Proc Print data = CBS_Rel_lvl label noobs;
+	where 	PRD = &Current_Period.
+	and 	REL_DIAO_TIER = 'C $5K+ '
+	and		REL_YTD_YOY_DIAO_Group = '03 Decreasing' ;
+Run ;
+*/
+
+
+/* Results for the CAM BoB Status */
+
+Title "Rel LvL KMS-PRD-YTD_GTH";
+Proc Freq data = CBS_Rel_lvl ;
+	tables KMS_FLAG*PRD*REL_YTD_YOY_DIAO_Group  
+	/ list missing nocum nopercent;
+run;
+Title;
+
+Title "Rel LvL KMS-PRD-YTD_GTH Net $";
+Proc Means data = CBS_Rel_lvl N Sum;
+	Class KMS_FLAG PRD REL_YTD_YOY_DIAO_Group ;
+	Var   REL_YTD_RD;
+run;
+Title;
+
+Title "Overall Rel $% YOY YTD";
+Proc SQL;
+	select 
+	KMS_FLAG,
+	PRD ,
+	((sum(REL_CRR_YTD_DIAO) - sum(REL_LST_YTD_DIAO)) / sum(REL_LST_YTD_DIAO) ) 
+	as REL_YTD_YOY_DIAO_PC Format = Percent15.4
+	From CBS_Rel_lvl 
+	Group By KMS_FLAG, PRD;
+Quit;
+Title;
+
+/* Same Store Sales */
+
+Title "Rel LvL KMS-PRD-SSS";
+Proc Freq data = CBS_Rel_lvl ;
+	tables KMS_FLAG*PRD*REL_YOY_SSS_DIAO_Group  
+	/ list missing nocum nopercent;
+run;
+Title;
+
+Title "Rel LvL KMS-PRD-SSS Net $";
+Proc Means data = CBS_Rel_lvl N Sum;
+	Class KMS_FLAG PRD REL_YOY_SSS_DIAO_Group ;
+	Var   REL_SSS_RD;
+run;
+Title;
+
+Title "Overall Rel $% YOY SSS";
+Proc SQL;
+	select 
+	KMS_FLAG,
+	PRD ,
+	((sum(REL_CRR_YOY_DIAO) - sum(REL_LST_YOY_DIAO)) / sum(REL_LST_YOY_DIAO) ) 
+	as REL_YOY_SSS_DIAO_PC Format = Percent15.4
+	From CBS_Rel_lvl 
+	Group By KMS_FLAG, PRD;
+Quit;
+Title;
+
+/* YTD YOY IND */
+
+Title "Segment - Rel LvL KMS PRD YTD";
+Proc Freq data = CBS_Rel_lvl ;
+	tables KMS_FLAG*PRD*REL_YTD_YOY_DIAO_Group*MIS 
+	/ list missing nocum nopercent ;
+run ;
+Title;
+
+Proc SQL;
+	Select 
+	KMS_FLAG , 
+	PRD , 
+	REL_YTD_YOY_DIAO_Group ,
+	MIS ,
+	sum(REL_YTD_RD) as REL_YTD_RD
+	From CBS_Rel_lvl 
+	Group by KMS_FLAG, PRD, REL_YTD_YOY_DIAO_Group, MIS ; 
+Quit;
+
+Proc SQL;
+	Select 
+	KMS_FLAG , 
+	PRD , 
+	REL_YTD_YOY_DIAO_Group ,
+	REL_DIAO_TIER,
+	count(*) as REL_CNT
+	From CBS_Rel_lvl 
+	Group by KMS_FLAG, PRD, REL_YTD_YOY_DIAO_Group, REL_DIAO_TIER ; 
+Quit;
+
+Title "Rel DIAO Tier - Rel LvL KMS PRD YTD";
+Proc Freq data = CBS_Rel_lvl ;
+	tables KMS_FLAG*PRD*REL_YTD_YOY_DIAO_Group*REL_DIAO_TIER
+	/ list missing nocum nopercent ;
+run ;
+Title;
+
+Title "Rel DIAO Tier - Rel LvL KMS PRD YTD";
+Proc Freq data = CBS_Rel_lvl ;
+	tables KMS_FLAG*PRD*REL_YTD_YOY_DIAO_Group*MIS
+	KMS_FLAG*PRD*MIS
+	/ list missing nocum nopercent ;
+run ;
+Title;
+
+/* Rep Level */
+
+Title "Rep Rel LvL KMS-ASSIGN REP-PRD-YTD GTH";
+Proc Freq data = CBS_Rel_lvl ;
+	tables KMS_FLAG*ASSIGN_REP*PRD*REL_YTD_YOY_DIAO_Group  
+	/ list missing nocum nopercent;
+run;
+Title;
+
+Title "Rep Overall Rel $% YOY YTD";
+Proc SQL;
+	create table rep_rel_a as select 
+	KMS_FLAG , PRD , ASSIGN_REP ,
+	REL_YTD_YOY_DIAO_Group ,
+	sum(REL_YTD_RD) as Bills  Format = 10.4
+	From CBS_Rel_lvl 
+	Group By KMS_FLAG, PRD, ASSIGN_REP, REL_YTD_YOY_DIAO_Group;
+
+	create table rep_rel_b as select 
+	KMS_FLAG , PRD , ASSIGN_REP ,
+	 '04 $ CHG'   	as REL_YTD_YOY_DIAO_Group ,
+	sum(REL_YTD_RD) as Bills  Format = 10.4
+	From CBS_Rel_lvl 
+	Group By KMS_FLAG, PRD, ASSIGN_REP ;
+
+	create table rep_rel_c as select 
+	KMS_FLAG, PRD , ASSIGN_REP ,
+	'05 % CHG'   as REL_YTD_YOY_DIAO_Group ,
+	((sum(REL_CRR_YTD_DIAO) - sum(REL_LST_YTD_DIAO)) / sum(REL_LST_YTD_DIAO) ) 
+	as Bills Format = 10.4
+	From CBS_Rel_lvl 
+	Group By KMS_FLAG, PRD, ASSIGN_REP ;
+Quit;
+
+data rep_rel ; set rep_rel_a rep_rel_b rep_rel_c ; run;
+
+proc sort data = rep_rel ;
+	by  KMS_FLAG PRD ASSIGN_REP REL_YTD_YOY_DIAO_Group ;
+Run;
+
+Proc Print data = rep_rel noobs; run;
+Title;
+
+/* Presentation Output */
+
+Title "Relationship DIAO Tier Groups";
+Proc Freq data = CBS_Rel_lvl ;
+	Tables PRD*REL_DIAO_TIER 
+	/ missing nocum nopercent NOROW NOCOL;
+Run;
+Title;
+
+Title "SSS DIAO Change Groups";
+Proc Freq data = CBS_Rel_lvl ;
+	Where REL_YOY_SSS_DIAO_Group ne '' ;
+	Tables PRD*REL_YOY_SSS_DIAO_Group
+	/ missing nocum nopercent NOROW NOCOL ;
+Run; 
+Title;
+
+Title "YTD DIAO Change Groups";
+Proc Freq data = CBS_Rel_lvl ;
+	Tables PRD*REL_YTD_YOY_DIAO_Group
+	/ missing nocum nopercent NOROW NOCOL;
+Run;
+Title;
+
+Title "SSS DIAO Change DBills";
+Proc Means data = CBS_Rel_lvl SUM;
+	*Where REL_YOY_SSS_DIAO_Group ne '' ;
+	Class PRD ;
+	var REL_YTD_RD ;
+Run; 
+Title;
+
+
+
+
+
+
+
+
+Title "Net $ by INS";
+Proc Means data = CBS_Rel_lvl Sum ;
+	class PRD segment ;
+	Var REL_YTD_RD ; 
+Run;
+Title;
+
+
+/* Fresh */
+
+Title "PRD-Segment $ Rel RTM";
+proc sql;
+	select
+	PRD,
+	segment,
+	sum(REL_RTM_DIAO) as REL_RTM_DIAO
+
+	from CBS_Rel_lvl 
+	group by PRD, segment ; 
+quit;
+Title;
+
+Title "PRD-Segment $ Performance";
+proc sql;
+	select
+	PRD,
+	segment,
+	sum()
+
+	from CBS_Rel_lvl 
+	group by PRD, segment ; 
+quit;
+Title;
+
+
+
+Title "Net $ by INS";
+Proc Means data =CBS_Rel_lvl Sum ;
+	class segment ;
+	Var REL_YTD_RD ; 
+Run;
+Title;
+Title "Avg. $ by INS";
+Proc Means data =CBS_Rel_lvl mean ;
+	class sub_segment ;
+	Var REL_YTD_RD ; 
+Run;
+Title;
+
+/* Equipment View */
+
+	Proc SQL;
+		Create Table CID_SUMS as select
+		Relationship , KMS_FLAG ,
+
+		sum(LAST_YTD_DIAO) as REL_LST_YTD_DIAO	Label = "Rel Last YR YTD DIAO" , 
+		sum(CURR_YTD_DIAO) as REL_CRR_YTD_DIAO	Label = "Rel Curr YR YTD DIAO" ,
+		sum(MID_DIAO)	   as REL_RTM_DIAO		Label = "Rel Rolling 12  DIAO" ,
+		sum(Last_YOY_DIAO) as REL_LST_YOY_DIAO  Label = "Rel Lst Period  DIAO" ,
+		sum(Curr_YOY_DIAO) as REL_CRR_YOY_DIAO  Label = "Rel Cur Period  DIAO"
+
+		from &T_Name.
+		group by Relationship, KMS_FLAG;
+	Quit;
+
+	data CID_SUMS ;
+	 set CID_SUMS ;
+	 Format REL_DIAO_TIER  $15. ;
+			if REL_RTM_DIAO > 5000 then REL_DIAO_TIER = 'C $5K+ '     ; 
+	 else	if REL_RTM_DIAO >  999 then REL_DIAO_TIER = 'B $1K - $5K' ; 
+	 else							    REL_DIAO_TIER = 'A < $999K'   ; 
+	run ;
+
+	proc sql;
+		create table &T_Name. as select a.*,
+		b.REL_LST_YTD_DIAO ,
+		b.REL_CRR_YTD_DIAO ,
+		b.REL_RTM_DIAO	   ,		
+		b.REL_LST_YOY_DIAO ,
+		b.REL_CRR_YOY_DIAO ,
+		b.REL_DIAO_TIER	
+
+		from 		&T_Name. a 
+		left join	CID_SUMS b on a.Relationship  = b.Relationship  and a.KMS_FLAG = b.KMS_FLAG ;
+	quit ;
+
+
+
+
+
+
+
+
+/*
+proc sql; 
+	select period, count(distinct relationship) from CBS_Rel_lvl  where kms_flag = 0 group by period; 
+	select period, count(distinct relationship) from CBS_Total_v2 where kms_flag = 0 group by period; 
+quit;
+
+
+title "01"; proc freq data = work.cam_bob_status_2014_01 ; tables prd / missing; run; title;
+title "02"; proc freq data = work.cam_bob_status_2014_02 ; tables prd / missing; run; title;
+title "03"; proc freq data = work.cam_bob_status_2014_03 ; tables prd / missing; run; title;
+title "04"; proc freq data = work.cam_bob_status_2014_04 ; tables prd / missing; run; title;
+title "05"; proc freq data = work.cam_bob_status_2014_05 ; tables prd / missing; run; title;
+title "06"; proc freq data = work.cam_bob_status_2014_06 ; tables prd / missing; run; title;
+title "07"; proc freq data = work.cam_bob_status_2014_07 ; tables prd / missing; run; title;
+title "08"; proc freq data = work.cam_bob_status_2014_08 ; tables prd / missing; run; title;
+
+
+data cam_bob_status_2014_01 ; set cam_bob_status_2014_01 ; Format PRD Date9. ; PRD  = '01JAN2014'D ; run ;
+data cam_bob_status_2014_02 ; set cam_bob_status_2014_02 ; Format PRD Date9. ; PRD  = '01FEB2014'D ; run ;
+data cam_bob_status_2014_03 ; set cam_bob_status_2014_03 ; Format PRD Date9. ; PRD  = '01MAR2014'D ; run ;
+data cam_bob_status_2014_04 ; set cam_bob_status_2014_04 ; Format PRD Date9. ; PRD  = '01APR2014'D ; run ;
+data cam_bob_status_2014_05 ; set cam_bob_status_2014_05 ; Format PRD Date9. ; PRD  = '01MAY2014'D ; run ;
+data cam_bob_status_2014_06 ; set cam_bob_status_2014_06 ; Format PRD Date9. ; PRD  = '01JUN2014'D ; run ;
+data cam_bob_status_2014_07 ; set cam_bob_status_2014_07 ; Format PRD Date9. ; PRD  = '01JUL2014'D ; run ;
+data cam_bob_status_2014_08 ; set cam_bob_status_2014_08 ; Format PRD Date9. ; PRD  = '01AUG2014'D ; run ;
+*/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Proc SQL;
+	create table AH_Output_File_v2 as select a.* ,
+
+	b.Last_YTD_DIAO as JAN_LST_YTD_DIAO	Label = "Acct Last YR YTD DIAO Jan14" , 
+	b.Curr_YTD_DIAO as JAN_CRR_YTD_DIAO	Label = "Acct Curr YR YTD DIAO Jan14" , 
+
+	c.Last_YTD_DIAO as FEB_LST_YTD_DIAO Label = "Acct Last YR YTD DIAO Feb14" , 
+	c.Curr_YTD_DIAO as FEB_CRR_YTD_DIAO Label = "Acct Curr YR YTD DIAO Feb14" , 
+
+	d.Last_YTD_DIAO as MAR_LST_YTD_DIAO Label = "Acct Last YR YTD DIAO Mar14" , 
+	d.Curr_YTD_DIAO as MAR_CRR_YTD_DIAO Label = "Acct Curr YR YTD DIAO Mar14" , 
+
+	e.Last_YTD_DIAO as APR_LST_YTD_DIAO Label = "Acct Last YR YTD DIAO Apr14" , 
+	e.Curr_YTD_DIAO as APR_CRR_YTD_DIAO Label = "Acct Curr YR YTD DIAO Apr14" , 
+
+	f.Last_YTD_DIAO as MAY_LST_YTD_DIAO Label = "Acct Last YR YTD DIAO May14" , 
+	f.Curr_YTD_DIAO as MAY_CRR_YTD_DIAO Label = "Acct Curr YR YTD DIAO May14" ,
+
+	g.Last_YTD_DIAO as JUN_LST_YTD_DIAO Label = "Acct Last YR YTD DIAO Jun14" , 
+	g.Curr_YTD_DIAO as JUN_CRR_YTD_DIAO Label = "Acct Curr YR YTD DIAO Jun14" ,
+
+	h.Last_YTD_DIAO as JUL_LST_YTD_DIAO Label = "Acct Last YR YTD DIAO JuL14" , 
+	h.Curr_YTD_DIAO as JUL_CRR_YTD_DIAO Label = "Acct Curr YR YTD DIAO JuL14" 
+
+	from AH_Output_File_v1 				a 
+	left join CAM_BoB_Status_2014_01	b on a.mid = b.mid 
+	left join CAM_BoB_Status_2014_02	c on a.mid = c.mid 
+	left join CAM_BoB_Status_2014_03 	d on a.mid = d.mid 
+	left join CAM_BoB_Status_2014_04	e on a.mid = e.mid 
+	left join CAM_BoB_Status_2014_05 	f on a.mid = f.mid  
+	left join CAM_BoB_Status_2014_06 	g on a.mid = g.mid
+	left join CAM_BoB_Status_2014_07 	h on a.mid = h.mid;	
+Quit;
+
+Proc Sort data = AH_Output_File_v2 NoDupKey; by MID KMS_FLAG; Run;
+
+/* 
+
+proc sql;
+select count(distinct relationship) as rel_cnt_NK
+from AH_Output_File_v2 where kms_flag = 0;
+
+select count(distinct relationship) as rel_cnt_YK
+from AH_Output_File_v2 where kms_flag = 1;
+
+select count(distinct relationship) as rel_cnt_ALL
+from AH_Output_File_v2 ;
+
+quit;
+
+*/
+
+
+Proc SQL;
+	Create Table AH_YTD_YOY_PC_DIAO_for_CID as select
+	Relationship  ,
+	KMS_FLAG ,
+
+	sum(JAN_LST_YTD_DIAO) as JAN_LST_YTD_DIAO	Label = "Acct Last YR YTD DIAO Jan14" , 
+	sum(JAN_CRR_YTD_DIAO) as JAN_CRR_YTD_DIAO	Label = "Acct Curr YR YTD DIAO Jan14" , 
+
+	sum(FEB_LST_YTD_DIAO) as FEB_LST_YTD_DIAO 	Label = "Acct Last YR YTD DIAO Feb14" , 
+	sum(FEB_CRR_YTD_DIAO) as FEB_CRR_YTD_DIAO 	Label = "Acct Curr YR YTD DIAO Feb14" , 
+
+	sum(MAR_LST_YTD_DIAO) as MAR_LST_YTD_DIAO 	Label = "Acct Last YR YTD DIAO Mar14" , 
+	sum(MAR_CRR_YTD_DIAO) as MAR_CRR_YTD_DIAO 	Label = "Acct Curr YR YTD DIAO Mar14" , 
+
+	sum(APR_LST_YTD_DIAO) as APR_LST_YTD_DIAO 	Label = "Acct Last YR YTD DIAO Apr14" , 
+	sum(APR_CRR_YTD_DIAO) as APR_CRR_YTD_DIAO 	Label = "Acct Curr YR YTD DIAO Apr14" , 
+
+	sum(MAY_LST_YTD_DIAO) as MAY_LST_YTD_DIAO 	Label = "Acct Last YR YTD DIAO May14" , 
+	sum(MAY_CRR_YTD_DIAO) as MAY_CRR_YTD_DIAO 	Label = "Acct Curr YR YTD DIAO May14" ,
+
+	sum(JUN_LST_YTD_DIAO) as JUN_LST_YTD_DIAO 	Label = "Acct Last YR YTD DIAO Jun14" , 
+	sum(JUN_CRR_YTD_DIAO) as JUN_CRR_YTD_DIAO 	Label = "Acct Curr YR YTD DIAO Jun14" ,
+
+	sum(JUL_LST_YTD_DIAO) as JUL_LST_YTD_DIAO 	Label = "Acct Last YR YTD DIAO Jul14" , 
+	sum(JUL_CRR_YTD_DIAO) as JUL_CRR_YTD_DIAO 	Label = "Acct Curr YR YTD DIAO Jul14" 
+
+	from AH_Output_File_v2
+	group by Relationship, KMS_FLAG;
+
+	Create Table AH_YTD_YOY_PC_DIAO_for_CID as select b.ASSIGN_REP, a.*
+	from AH_YTD_YOY_PC_DIAO_for_CID a 
+	left join AH_Output_File_v2 	b on a.Relationship = b.Relationship and a.kms_flag = b.kms_flag;
+Quit;
+
+proc sort data = AH_YTD_YOY_PC_DIAO_for_CID NoDupKey; by Relationship KMS_FLAG; Run;
+
+/* 
+
+proc sql;
+select count(distinct relationship) as rel_cnt_NK
+from AH_YTD_YOY_PC_DIAO_for_CID where kms_flag = 0;
+
+select count(distinct relationship) as rel_cnt_YK
+from AH_YTD_YOY_PC_DIAO_for_CID where kms_flag = 1;
+
+select count(distinct relationship) as rel_cnt_ALL
+from AH_YTD_YOY_PC_DIAO_for_CID ;
+
+quit;
+
+*/
+
+data AH_YTD_YOY_PC_DIAO_for_CID_v2;
+ set AH_YTD_YOY_PC_DIAO_for_CID;
+
+ Format 
+	JAN_YTD_YOY_DIAO_PC 
+	FEB_YTD_YOY_DIAO_PC 
+	MAR_YTD_YOY_DIAO_PC 
+	APR_YTD_YOY_DIAO_PC 
+	MAY_YTD_YOY_DIAO_PC 
+	JUN_YTD_YOY_DIAO_PC 
+	JUL_YTD_YOY_DIAO_PC 
+ Percent8.0;
+ 
+ /* Jan 14 */
+  	JAN_YTD_YOY_DIAO_PC = ((abs(JAN_CRR_YTD_DIAO) - abs(JAN_LST_YTD_DIAO)) / abs(JAN_LST_YTD_DIAO)); 
+	if JAN_LST_YTD_DIAO = 0 then JAN_YTD_YOY_DIAO_PC = 0;
+ 	JAN_RD = abs(JAN_CRR_YTD_DIAO) - abs(JAN_LST_YTD_DIAO);
+ 	 if JAN_YTD_YOY_DIAO_PC < -0.05 then JAN_YTD_YOY_DIAO_Group = '03 Decreasing' ;
+else if JAN_YTD_YOY_DIAO_PC >  0.05 then JAN_YTD_YOY_DIAO_Group = '01 Increasing' ;
+else 							     	 JAN_YTD_YOY_DIAO_Group = '02 Sustaining' ;
+
+/* Feb 14 */
+  	FEB_YTD_YOY_DIAO_PC = ((abs(FEB_CRR_YTD_DIAO) - abs(FEB_LST_YTD_DIAO)) / abs(FEB_LST_YTD_DIAO)); 
+	if FEB_LST_YTD_DIAO = 0 then FEB_YTD_YOY_DIAO_PC = 0;
+ 	FEB_RD = abs(FEB_CRR_YTD_DIAO) - abs(FEB_LST_YTD_DIAO);
+ 	 if FEB_YTD_YOY_DIAO_PC < -0.05 then FEB_YTD_YOY_DIAO_Group = '03 Decreasing' ;
+else if FEB_YTD_YOY_DIAO_PC >  0.05 then FEB_YTD_YOY_DIAO_Group = '01 Increasing' ;
+else 							     	 FEB_YTD_YOY_DIAO_Group = '02 Sustaining' ;
+
+/* Mar 14 */
+  	MAR_YTD_YOY_DIAO_PC = ((abs(MAR_CRR_YTD_DIAO) - abs(MAR_LST_YTD_DIAO)) / abs(MAR_LST_YTD_DIAO)); 
+	if MAR_LST_YTD_DIAO = 0 then MAR_YTD_YOY_DIAO_PC = 0;
+ 	MAR_RD = abs(MAR_CRR_YTD_DIAO) - abs(MAR_LST_YTD_DIAO);
+ 	 if MAR_YTD_YOY_DIAO_PC < -0.05 then MAR_YTD_YOY_DIAO_Group = '03 Decreasing' ;
+else if MAR_YTD_YOY_DIAO_PC >  0.05 then MAR_YTD_YOY_DIAO_Group = '01 Increasing' ;
+else 							     	 MAR_YTD_YOY_DIAO_Group = '02 Sustaining' ;
+
+/* Apr 14 */
+  	APR_YTD_YOY_DIAO_PC = ((abs(APR_CRR_YTD_DIAO) - abs(APR_LST_YTD_DIAO)) / abs(APR_LST_YTD_DIAO)); 
+	if APR_LST_YTD_DIAO = 0 then APR_YTD_YOY_DIAO_PC = 0;
+ 	APR_RD = abs(APR_CRR_YTD_DIAO) - abs(APR_LST_YTD_DIAO);
+ 	 if APR_YTD_YOY_DIAO_PC < -0.05 then APR_YTD_YOY_DIAO_Group = '03 Decreasing' ;
+else if APR_YTD_YOY_DIAO_PC >  0.05 then APR_YTD_YOY_DIAO_Group = '01 Increasing' ;
+else 							     	 APR_YTD_YOY_DIAO_Group = '02 Sustaining' ;
+
+/* May 14 */
+  	MAY_YTD_YOY_DIAO_PC = ((abs(MAY_CRR_YTD_DIAO) - abs(MAY_LST_YTD_DIAO)) / abs(MAY_LST_YTD_DIAO)); 
+	if MAY_LST_YTD_DIAO = 0 then MAY_YTD_YOY_DIAO_PC = 0;
+ 	MAY_RD = abs(MAY_CRR_YTD_DIAO) - abs(MAY_LST_YTD_DIAO);
+ 	 if MAY_YTD_YOY_DIAO_PC < -0.05 then MAY_YTD_YOY_DIAO_Group = '03 Decreasing' ;
+else if MAY_YTD_YOY_DIAO_PC >  0.05 then MAY_YTD_YOY_DIAO_Group = '01 Increasing' ;
+else 							     	 MAY_YTD_YOY_DIAO_Group = '02 Sustaining' ;
+
+/* Jun 14 */
+  	JUN_YTD_YOY_DIAO_PC = ((abs(JUN_CRR_YTD_DIAO) - abs(JUN_LST_YTD_DIAO)) / abs(JUN_LST_YTD_DIAO)); 
+	if JUN_LST_YTD_DIAO = 0 then JUN_YTD_YOY_DIAO_PC = 0;
+ 	JUN_RD = abs(JUN_CRR_YTD_DIAO) - abs(JUN_LST_YTD_DIAO);
+ 	 if JUN_YTD_YOY_DIAO_PC < -0.05 then JUN_YTD_YOY_DIAO_Group = '03 Decreasing' ;
+else if JUN_YTD_YOY_DIAO_PC >  0.05 then JUN_YTD_YOY_DIAO_Group = '01 Increasing' ;
+else 							     	 JUN_YTD_YOY_DIAO_Group = '02 Sustaining' ;
+
+/* Jul 14 */
+  	JUL_YTD_YOY_DIAO_PC = ((abs(JUL_CRR_YTD_DIAO) - abs(JUL_LST_YTD_DIAO)) / abs(JUL_LST_YTD_DIAO)); 
+	if JUL_LST_YTD_DIAO = 0 then JUL_YTD_YOY_DIAO_PC = 0;
+ 	JUL_RD = abs(JUL_CRR_YTD_DIAO) - abs(JUL_LST_YTD_DIAO);
+ 	 if JUL_YTD_YOY_DIAO_PC < -0.05 then JUL_YTD_YOY_DIAO_Group = '03 Decreasing' ;
+else if JUL_YTD_YOY_DIAO_PC >  0.05 then JUL_YTD_YOY_DIAO_Group = '01 Increasing' ;
+else 							     	 JUL_YTD_YOY_DIAO_Group = '02 Sustaining' ;
+
+run;
+
+Proc Sort data = AH_YTD_YOY_PC_DIAO_for_CID_v2 NoDupKey; By Relationship KMS_FLAG; Run;
+
+/*
+Proc Freq Data = AH_YTD_YOY_PC_DIAO_for_CID_v2;
+	Tables 
+		JAN_YTD_YOY_DIAO_Group 
+		FEB_YTD_YOY_DIAO_Group 
+		MAR_YTD_YOY_DIAO_Group 
+		APR_YTD_YOY_DIAO_Group 
+		MAY_YTD_YOY_DIAO_Group 
+		JUN_YTD_YOY_DIAO_Group 
+	/ missing nocum nocol nopercent nofreq;
+run;
+
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class JAN_YTD_YOY_DIAO_Group ; var   JAN_RD ; run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class FEB_YTD_YOY_DIAO_Group ; var   FEB_RD ; run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class MAR_YTD_YOY_DIAO_Group ; var   MAR_RD ; run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class APR_YTD_YOY_DIAO_Group ; var   APR_RD ; run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class MAY_YTD_YOY_DIAO_Group ; var   MAY_RD ; run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class JUN_YTD_YOY_DIAO_Group ; var   JUN_RD ; run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class JUL_YTD_YOY_DIAO_Group ; var   JUL_RD ; run;
+
+Proc Univariate data = AH_YTD_YOY_PC_DIAO_for_CID_v2 ;
+	Histogram;
+	var  YTD_YOY_DIAO_PC;
+Run;
+
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class ASSIGN_REP ; var JAN_LST_YTD_DIAO ;  run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class ASSIGN_REP ; var FEB_LST_YTD_DIAO ;  run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class ASSIGN_REP ; var MAR_LST_YTD_DIAO ;  run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class ASSIGN_REP ; var APR_LST_YTD_DIAO ;  run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class ASSIGN_REP ; var JUN_LST_YTD_DIAO ;  run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class ASSIGN_REP ; var JUL_LST_YTD_DIAO ;  run;
+
+
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class ASSIGN_REP ; var JAN_CRR_YTD_DIAO ;  run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class ASSIGN_REP ; var FEB_CRR_YTD_DIAO ;  run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class ASSIGN_REP ; var MAR_CRR_YTD_DIAO ;  run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class ASSIGN_REP ; var APR_CRR_YTD_DIAO ;  run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class ASSIGN_REP ; var JUN_CRR_YTD_DIAO ;  run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; class ASSIGN_REP ; var JUL_CRR_YTD_DIAO ;  run;
+
+
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum;  
+	class ASSIGN_REP ;
+	var  
+		JAN_CRR_YTD_DIAO
+		FEB_CRR_YTD_DIAO
+		MAR_CRR_YTD_DIAO
+		APR_CRR_YTD_DIAO
+		MAY_CRR_YTD_DIAO
+		JUN_CRR_YTD_DIAO     
+		JUL_CRR_YTD_DIAO  
+	; 
+run;
+*/
+
+* Current Month Counts for the CAM/CAM-KMS BoB ;
+
+Title "Current Month Growth Group Counts for CAM";
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; 
+	where KMS_FLAG  ne 1;
+	class JUL_YTD_YOY_DIAO_Group  ;
+	var JUL_RD ; 
+run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; 
+	where KMS_FLAG  ne 1;
+	var JUL_LST_YTD_DIAO JUL_CRR_YTD_DIAO ; 
+run;
+
+Title "Current Month Growth Group Counts for CAM-KMS";
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; 
+	where KMS_FLAG  = 1;
+	class JUL_YTD_YOY_DIAO_Group ;
+	var JUL_RD ; 
+run;
+Proc Means Data = AH_YTD_YOY_PC_DIAO_for_CID_v2 sum; 
+	where KMS_FLAG = 1;
+	var JUL_LST_YTD_DIAO JUL_CRR_YTD_DIAO ; 
+run;
+
+%Macro REP_OUTPUT;
+/* RD trend by rep */
+
+proc sql;
+	Create Table RD_by_GRP as
+	select Distinct 
+	a.ASSIGN_REP, 
+	a.JAN_YTD_YOY_DIAO_Group as YTD_YOY_DIAO_Group,
+
+	h.Curr_Rel_CNT ,
+
+	b.JAN ,
+	c.FEB ,
+	d.MAR ,
+	e.APR ,
+	f.MAY ,
+	g.JUN ,
+	h.JUL
+
+	from ah_ytd_yoy_pc_diao_for_cid_v2  a
+
+	left join
+	(select ASSIGN_REP, 
+	JAN_YTD_YOY_DIAO_Group, 
+	sum(JAN_LST_YTD_DIAO) as JAN_LST ,
+	sum(JAN_CRR_YTD_DIAO) as JAN_CRR ,
+	sum(JAN_RD)			  as JAN 
+	from ah_ytd_yoy_pc_diao_for_cid_v2
+  	group by ASSIGN_REP, JAN_YTD_YOY_DIAO_Group) b on 
+	a.ASSIGN_REP = b.ASSIGN_REP and
+    a.JAN_YTD_YOY_DIAO_Group = b.JAN_YTD_YOY_DIAO_Group
+
+	left join
+	(select ASSIGN_REP, FEB_YTD_YOY_DIAO_Group, sum(FEB_rd) as FEB
+	from ah_ytd_yoy_pc_diao_for_cid_v2
+  	group by ASSIGN_REP, FEB_YTD_YOY_DIAO_Group) c on
+	a.ASSIGN_REP = c.ASSIGN_REP and
+    a.JAN_YTD_YOY_DIAO_Group = c.FEB_YTD_YOY_DIAO_Group
+
+	left join
+	(select ASSIGN_REP, MAR_YTD_YOY_DIAO_Group, sum(MAR_rd) as MAR
+	from ah_ytd_yoy_pc_diao_for_cid_v2
+  	group by ASSIGN_REP, MAR_YTD_YOY_DIAO_Group) d on 
+	a.ASSIGN_REP = d.ASSIGN_REP and
+    a.JAN_YTD_YOY_DIAO_Group = d.MAR_YTD_YOY_DIAO_Group
+
+	left join
+	(select ASSIGN_REP, APR_YTD_YOY_DIAO_Group, sum(APR_rd) as APR
+	from ah_ytd_yoy_pc_diao_for_cid_v2
+  	group by ASSIGN_REP, APR_YTD_YOY_DIAO_Group) e on
+	a.ASSIGN_REP = e.ASSIGN_REP and
+    a.JAN_YTD_YOY_DIAO_Group = e.APR_YTD_YOY_DIAO_Group
+
+	left join
+	(select ASSIGN_REP, MAY_YTD_YOY_DIAO_Group, sum(MAY_rd) as MAY 
+	from ah_ytd_yoy_pc_diao_for_cid_v2
+  	group by ASSIGN_REP, MAY_YTD_YOY_DIAO_Group) f on
+	a.ASSIGN_REP = f.ASSIGN_REP and
+    a.JAN_YTD_YOY_DIAO_Group = f.MAY_YTD_YOY_DIAO_Group
+
+	left join
+	(select ASSIGN_REP, JUN_YTD_YOY_DIAO_Group, sum(JUN_rd) as JUN
+	from ah_ytd_yoy_pc_diao_for_cid_v2
+  	group by ASSIGN_REP, JUN_YTD_YOY_DIAO_Group) g on
+	a.ASSIGN_REP = g.ASSIGN_REP and
+    a.JAN_YTD_YOY_DIAO_Group = g.JUN_YTD_YOY_DIAO_Group
+
+	left join
+	(select ASSIGN_REP, JUL_YTD_YOY_DIAO_Group, sum(JUL_rd) as JUL ,
+	Count(Distinct Relationship) as Curr_Rel_CNT
+	from ah_ytd_yoy_pc_diao_for_cid_v2
+  	group by ASSIGN_REP, JUL_YTD_YOY_DIAO_Group) h on
+	a.ASSIGN_REP = h.ASSIGN_REP and
+    a.JAN_YTD_YOY_DIAO_Group = h.JUL_YTD_YOY_DIAO_Group
+
+
+	where KMS_FLAG &KMS. 1
+
+	;
+quit;
+
+/* RD Sums */
+
+proc sql;
+	Create Table RD_by_REP as
+	select Distinct 
+	a.ASSIGN_REP, 
+	'04 Sum RD' as YTD_YOY_DIAO_Group,
+
+	b.JAN ,
+	c.FEB ,
+	d.MAR ,
+	e.APR ,
+	f.MAY ,
+	g.JUN ,
+	h.JUL
+
+	from ah_ytd_yoy_pc_diao_for_cid_v2  a
+
+	left join
+	(select ASSIGN_REP, 
+	sum(JAN_LST_YTD_DIAO) as JAN_LST ,
+	sum(JAN_CRR_YTD_DIAO) as JAN_CRR ,
+	sum(JAN_RD)			  as JAN
+	from ah_ytd_yoy_pc_diao_for_cid_v2
+  	group by ASSIGN_REP) b on 
+	a.ASSIGN_REP = b.ASSIGN_REP
+
+	left join
+	(select ASSIGN_REP, sum(FEB_rd) as FEB
+	from ah_ytd_yoy_pc_diao_for_cid_v2
+  	group by ASSIGN_REP ) c on
+	a.ASSIGN_REP = c.ASSIGN_REP
+
+	left join
+	(select ASSIGN_REP, sum(MAR_rd) as MAR
+	from ah_ytd_yoy_pc_diao_for_cid_v2
+  	group by ASSIGN_REP ) d on 
+	a.ASSIGN_REP = d.ASSIGN_REP
+
+	left join
+	(select ASSIGN_REP, sum(APR_rd) as APR
+	from ah_ytd_yoy_pc_diao_for_cid_v2
+  	group by ASSIGN_REP) e on
+	a.ASSIGN_REP = e.ASSIGN_REP
+
+	left join
+	(select ASSIGN_REP, sum(MAY_rd) as MAY
+	from ah_ytd_yoy_pc_diao_for_cid_v2
+  	group by ASSIGN_REP ) f on
+	a.ASSIGN_REP = f.ASSIGN_REP
+
+	left join
+	(select ASSIGN_REP, sum(JUN_rd) as JUN
+	from ah_ytd_yoy_pc_diao_for_cid_v2
+  	group by ASSIGN_REP ) g on
+	a.ASSIGN_REP = g.ASSIGN_REP
+
+	left join
+	(select ASSIGN_REP, sum(JUL_rd) as JUL ,
+	Count(Distinct Relationship) as Curr_Rel_CNT
+	from ah_ytd_yoy_pc_diao_for_cid_v2
+  	group by ASSIGN_REP) h on
+	a.ASSIGN_REP = h.ASSIGN_REP
+
+	where KMS_FLAG &KMS. 1 ;
+quit;
+
+/* BoB Growth Rates */
+
+proc sql;
+	create table Growth_Rates as
+	select Distinct 
+	a.ASSIGN_REP, 
+	'05 Grow Rates' as YTD_YOY_DIAO_Group,
+	((b.CRR-b.LST) / b.LST) as JAN ,
+	((c.CRR-c.LST) / c.LST) as FEB ,
+	((d.CRR-d.LST) / d.LST) as MAR ,
+	((e.CRR-e.LST) / e.LST) as APR ,
+	((f.CRR-f.LST) / f.LST) as MAY ,
+	((g.CRR-g.LST) / g.LST) as JUN ,
+	((h.CRR-g.LST) / h.LST) as JUL
+
+	from ah_ytd_yoy_pc_diao_for_cid_v2  a
+
+	left join
+	(select ASSIGN_REP,  
+	sum(JAN_LST_YTD_DIAO) as LST ,
+	sum(JAN_CRR_YTD_DIAO) as CRR
+	from ah_ytd_yoy_pc_diao_for_cid_v2 group by ASSIGN_REP
+	) b on 	a.ASSIGN_REP = b.ASSIGN_REP
+
+	left join
+	(select ASSIGN_REP,  
+	sum(FEB_LST_YTD_DIAO) as LST ,
+	sum(FEB_CRR_YTD_DIAO) as CRR
+	from ah_ytd_yoy_pc_diao_for_cid_v2 group by ASSIGN_REP
+	) c on 	a.ASSIGN_REP = c.ASSIGN_REP
+
+	left join
+	(select ASSIGN_REP,  
+	sum(MAR_LST_YTD_DIAO) as LST ,
+	sum(MAR_CRR_YTD_DIAO) as CRR
+	from ah_ytd_yoy_pc_diao_for_cid_v2 group by ASSIGN_REP
+	) d on 	a.ASSIGN_REP = d.ASSIGN_REP
+
+	left join
+	(select ASSIGN_REP,  
+	sum(APR_LST_YTD_DIAO) as LST ,
+	sum(APR_CRR_YTD_DIAO) as CRR
+	from ah_ytd_yoy_pc_diao_for_cid_v2 group by ASSIGN_REP
+	) e on 	a.ASSIGN_REP = e.ASSIGN_REP
+
+	left join
+	(select ASSIGN_REP,  
+	sum(MAY_LST_YTD_DIAO) as LST ,
+	sum(MAY_CRR_YTD_DIAO) as CRR
+	from ah_ytd_yoy_pc_diao_for_cid_v2 group by ASSIGN_REP
+	) f on 	a.ASSIGN_REP = f.ASSIGN_REP
+
+	left join
+	(select ASSIGN_REP,  
+	sum(JUN_LST_YTD_DIAO) as LST ,
+	sum(JUN_CRR_YTD_DIAO) as CRR
+	from ah_ytd_yoy_pc_diao_for_cid_v2 group by ASSIGN_REP
+	) g on 	a.ASSIGN_REP = g.ASSIGN_REP
+
+
+	left join
+	(select ASSIGN_REP,  
+	sum(JUL_LST_YTD_DIAO) as LST ,
+	sum(JUL_CRR_YTD_DIAO) as CRR
+	from ah_ytd_yoy_pc_diao_for_cid_v2 group by ASSIGN_REP
+	) h on 	a.ASSIGN_REP = h.ASSIGN_REP
+
+	where KMS_FLAG &KMS. 1 ;
+quit;
+
+data CAM_REP_OUTPUT;
+ set RD_by_GRP 
+	 RD_by_REP
+	 Growth_Rates;
+run;
+
+Proc Sort data = CAM_REP_OUTPUT ; by ASSIGN_REP YTD_YOY_DIAO_Group ; Run; 
+
+%mend;
+
+%LET KMS = <> ; %REP_OUTPUT title "CAM NonKMS"; Proc Print data = CAM_REP_OUTPUT NoObs; Run; title;
+%LET KMS = =  ; %REP_OUTPUT title "CAM    KMS"; Proc Print data = CAM_REP_OUTPUT NoObs; Run; title;
+
+
+
+/* top & bot */
+
+Proc sort data  = AH_YTD_YOY_PC_DIAO_for_CID_v2 ; by RD ; Run ;
+proc print data = AH_YTD_YOY_PC_DIAO_for_CID_v2 (obs=25); run ;
+
+Proc sort data  = AH_YTD_YOY_PC_DIAO_for_CID_v2 ; by descending RD ; Run ;
+proc print data = AH_YTD_YOY_PC_DIAO_for_CID_v2 (obs=25); 
+where Rel_Last_YTD_DIAO > 0 ;
+run ;
+
+Proc sql inobs=25;
+	select * from AH_YTD_YOY_PC_DIAO_for_CID_v2;
+quit;
