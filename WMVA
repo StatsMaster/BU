@@ -1,0 +1,763 @@
+
+
+/*************************************//*************************************//*************************************/
+/*************************************//*************************************//*************************************/
+/*
+  __  __           _            __      ______  _                 _           _     _____                       _   
+ |  \/  |         (_)           \ \    / / __ \| |          /\   | |         | |   |  __ \                     | |  
+ | \  / | _____  ___  ___ ___    \ \  / / |  | | |         /  \  | | ___ _ __| |_  | |__) |___ _ __   ___  _ __| |_ 
+ | |\/| |/ _ \ \/ / |/ __/ _ \    \ \/ /| |  | | |        / /\ \ | |/ _ \ '__| __| |  _  // _ \ '_ \ / _ \| '__| __|
+ | |  | |  __/>  <| | (_| (_) |    \  / | |__| | |____   / ____ \| |  __/ |  | |_  | | \ \  __/ |_) | (_) | |  | |_ 
+ |_|  |_|\___/_/\_\_|\___\___/      \/   \____/|______| /_/    \_\_|\___|_|   \__| |_|  \_\___| .__/ \___/|_|   \__|
+                                                                                              | |                   
+                                                                                              |_|                   
+*/
+/*************************************//*************************************//*************************************/
+/*************************************//*************************************//*************************************/
+
+%let Today = %sysfunc(today(),Date9.) ; 
+
+data Dates ;
+	Format ELW_Period EPW_Period FTW_Period date9.;
+
+	ELW_Period = intnx('week',"&Today."D,-1,'E');
+	ELW_WK_NBR = week(ELW_Period);
+	ELW_MonName = Upcase(substr(Compress(Put(ELW_Period,monname.)),1,3)) ;
+	if day(ELW_period) < 10 then ELW_DayName = compress("0"||put(day(ELW_Period),5.));
+	else ELW_DayName = compress(put(day(ELW_Period),5.));
+	ELW_YerName = put(Year(ELW_Period),5.);
+    ELW = Compress("'"||ELW_DayName||"-"||ELW_MonName||"-"||ELW_YerName||"'") ;
+    Call SymputX('ELW',ELW) ;
+
+	EPW_Period = intnx('week',"&Today."D,-2,'E');
+	EPW_WK_NBR = week(EPW_Period);
+	EPW_MonName = Upcase(substr(Compress(Put(EPW_Period,monname.)),1,3)) ;
+	if day(EPW_period) < 10 then EPW_DayName = compress("0"||put(day(EPW_Period),5.));
+	else EPW_DayName = compress(put(day(EPW_Period),5.));
+	EPW_YerName = put(Year(EPW_Period),5.);
+    EPW  = Compress("'"||EPW_DayName||"-"||EPW_MonName||"-"||EPW_YerName||"'") ;
+	EPWP = Compress("'"||EPW_DayName||EPW_MonName||EPW_YerName||"'"||"D") ;
+	ORA_EPW  = Compress("'"||EPW_DayName||"-"||EPW_MonName||"-"||EPW_YerName||"'") ;
+    Call SymputX('EPW' ,EPW ) ;
+	Call SymputX('end_of_past_week',EPWP) ;
+
+	CWS_Period = intnx('day',EPW_Period,1,'S');
+	CWS_MonName = Upcase(substr(Compress(Put(CWS_Period,monname.)),1,3)) ;
+	if day(CWS_period) < 10 then CWS_DayName = compress("0"||put(day(CWS_Period),5.));
+	else CWS_DayName = compress(put(day(CWS_Period),5.));
+	CWS_YerName = put(Year(CWS_Period),5.);
+	ORA_CWS  = Compress("'"||CWS_DayName||"-"||CWS_MonName||"-"||CWS_YerName||"'") ;
+	Call SymputX('curr_week_start',ORA_CWS);
+
+	CWE_Period = intnx('week',EPW_Period,1,'E');
+	CWE_MonName = Upcase(substr(Compress(Put(CWE_Period,monname.)),1,3)) ;
+	if day(CWE_period) < 10 then CWE_DayName = compress("0"||put(day(CWE_Period),5.));
+	else CWE_DayName = compress(put(day(CWE_Period),5.));
+	CWE_YerName = put(Year(CWE_Period),5.);
+	ORA_CWE = Compress("'"||CWE_DayName||"-"||CWE_MonName||"-"||CWE_YerName||"'") ;
+	SAS_CWE = Compress("'"||CWE_DayName||CWE_MonName||CWE_YerName||"'"||"D") ;
+	Call SymputX('curr_week_end'    ,ORA_CWE);
+	Call SymputX('sas_curr_week_end',SAS_CWE);
+
+	FTW_Period = intnx('week',"&Today."D,-52,'B');
+	FTW_MonName = Upcase(substr(Compress(Put(FTW_Period,monname.)),1,3)) ;
+	if day(FTW_period) < 10 then FTW_DayName = compress("0"||put(day(FTW_Period),5.));
+	else FTW_DayName = compress(put(day(FTW_Period),5.));
+	FTW_YerName = put(Year(FTW_Period),5.);
+    FTW = Compress("'"||FTW_DayName||"-"||FTW_MonName||"-"||FTW_YerName||"'") ;
+    Call SymputX('FTW',FTW) ;
+
+	Call SymputX('Last_Week_NBR',ELW_WK_NBR);
+
+	file_year  = put(Year("&Today."D),5.);
+	if month("&Today."D) < 10 then file_month = compress("0"||put(month("&Today."D),5.));
+	else file_month = compress(put(month("&Today."D),5.)); 
+    if day("&Today."D) < 10 then file_day = compress("0"||put(day("&Today."D),5.));
+	else file_day = compress(put(day("&Today."D),5.)); 
+	file_name = compress("loc_srs.MXN_WA_"||file_year||"_"||file_month||"_"||file_day);
+	file_nm   = compress("MXN_WA_"||file_year||"_"||file_month||"_"||file_day);
+	Call SymputX('file_name' , file_name) ;
+	Call SymputX('file_nm'   , file_nm)   ;
+run ;
+
+data _null_ ;
+	Format Period date9.;
+	Period = intnx('week',&end_of_past_week.,-52,'beginning')  ;
+    OraDate = 
+    Compress("'01-"||Upcase(substr(Compress(Put(Period,monname.)),1,3))||"-"||year(Period)||"'");   
+	Call SymputX('SAS_R52w_year_start',Period);	
+    Call SymputX('Ora_R52w_year_start',OraDate);
+run;
+
+%let end_of_past_week 	= &EPW. ;
+
+/*********************//*********************//*********************/
+/*********************//*********************//*********************/
+/********************//* R52w Weekly Avg  VOL *//********************/
+/*********************//*********************//*********************/
+/*********************//*********************//*********************/
+
+proc sql;
+	connect to oracle (user = &TDSA_U. password = &TDSA_P. path= 'TDSA.WORLD');
+	Create table AWVY as select * from connection to oracle ( 
+	select 
+		MID_Tag,
+		Ext_MID, 
+		ltrim(Ext_MID,0) as LTRIM_EXT_MID, 
+		Batch_Date, 
+		sum(BATCH_NET_AMT) DAILY_VOL
+	from 	TDS.EHDR
+	where 	prcs_centre_cde = 'QUERE'       
+	and 	batch_date between &ORA_R52W_year_start. and &end_of_past_week.
+	group by MID_TAG, Ext_MID, BATCH_DATE );
+	disconnect from oracle;
+quit;
+
+proc sql;
+
+	create table uni_mid_list1 as select distinct LTRIM_EXT_MID from awvy;
+
+	create table uni_mid_list2 as select distinct External_ID 	from loc_srs.WEEKLY_MXN_VOL_ALERT_2013_11_27 ;
+
+	create table test as select distinct a.LTRIM_EXT_MID 
+	from uni_mid_list1 a inner join uni_mid_list2 b on a.LTRIM_EXT_MID = b.External_ID ;
+
+	create table AWVY_match as select a.*, week(datepart(a.Batch_Date)) as Week_Number 
+	from AWVY a inner join uni_mid_list2 b on a.LTRIM_EXT_MID = b.External_ID;
+
+quit;
+
+Proc SQL;
+	Create Table Weekly_Grouping as select 
+	Ext_MID, Week_Number, sum(DAILY_VOL) as WEEKLY_VOL
+	from AWVY_match Group by Ext_MID, Week_Number;
+Quit;
+
+/*
+proc sql ;
+	create table MCC_SEG_Grouping as select 
+	a.*, f.MCC_SEG_MOD		
+	from 		Weekly_Grouping 	a 
+	left join   Industry			f on a.Ext_MID  = f.Ext_MID ;
+quit ;
+
+proc sql;
+	create table MCC_SEG_Grouping as select 
+	MCC_SEG_MOD, Week_Number, sum(WEEKLY_VOL) as WEEKLY_VOL
+	from MCC_SEG_Grouping group by MCC_SEG_MOD, Week_Number;
+quit;
+
+PROC STANDARD DATA = MCC_SEG_Grouping MEAN = 0 STD = 1 
+			  OUT  = MCC_SEG_Grouping;
+  VAR weekly_vol;
+RUN;
+
+proc sql;
+	create table MCC_SEG_Grouping as select 
+	MCC_SEG_MOD, 
+	std(WEEKLY_VOL) as R52W_STD_MCC_SEG_Weekly_VOL format = comma8.4
+	from MCC_SEG_Grouping group by MCC_SEG_MOD;
+quit;
+*/
+
+Proc SQL;
+	Create Table AVG_Weekly_VOL as select 
+	Ext_MID, 
+	avg(WEEKLY_VOL) as R52W_AVG_Weekly_VOL format = comma8.2
+	from Weekly_Grouping Group by Ext_MID;
+Quit;
+
+
+
+/*************************//*************************//*************************/
+/*************************//*************************//*************************/
+/***********************//* VOL for the Current Week *//************************/
+/*************************//*************************//*************************/
+/*************************//*************************//*************************/
+
+
+proc sql;
+	connect to oracle (user = &TDSA_U. password = &TDSA_P. path= 'TDSA.WORLD');
+	Create table Current_Week as select * from connection to oracle ( 
+	select Ext_MID, sum(BATCH_NET_AMT) Current_Week_VOL
+	from 	TDS.EHDR
+	where 	prcs_centre_cde = 'QUERE'       
+	and 	batch_date between &curr_week_start. and &curr_week_end.
+	group by Ext_MID );
+	disconnect from oracle;
+quit;
+
+
+/*****************************//*****************************//*****************************/
+/*****************************//*****************************//*****************************/
+/*****************************//* Active in the Past 9 Weeks *//*****************************/
+/*****************************//*****************************//*****************************/
+/*****************************//*****************************//*****************************/
+
+
+data _null_ ;
+ Call SymPutX('This_Week',week(today()));
+ Call SymPutX('This_Week_min_2', week(intnx('week',Today(),-2, 'beginning')));
+ Call SymPutX('This_Week_min_3', week(intnx('week',Today(),-3, 'beginning')));
+ Call SymPutX('This_Week_min_4', week(intnx('week',Today(),-4, 'beginning')));
+ Call SymPutX('This_Week_min_5', week(intnx('week',Today(),-5, 'beginning')));
+ Call SymPutX('This_Week_min_6', week(intnx('week',Today(),-6, 'beginning')));
+ Call SymPutX('This_Week_min_7', week(intnx('week',Today(),-7, 'beginning')));
+ Call SymPutX('This_Week_min_8', week(intnx('week',Today(),-8, 'beginning')));
+ Call SymPutX('This_Week_min_9', week(intnx('week',Today(),-9, 'beginning')));
+ Call SymPutX('This_Week_min_10',week(intnx('week',Today(),-10,'beginning')));
+run;
+
+%PUT &This_Week. &This_Week_min_2.;
+
+proc sql;
+	connect to oracle (user = &TDSA_U. password = &TDSA_P. path= 'TDSA.WORLD');
+	Create table Nine_A as select * from connection to oracle ( 
+	select 
+		MID_Tag,
+		Ext_MID, 
+		ltrim(Ext_MID,0) as LTRIM_EXT_MID, 
+		Batch_Date, 
+		sum(BATCH_NET_AMT) DAILY_VOL
+	from 	TDS.EHDR
+	where 	prcs_centre_cde = 'QUERE'       
+	and 	batch_date between &ORA_R52W_year_start. and &end_of_past_week.
+	group by MID_TAG, Ext_MID, BATCH_DATE );
+	disconnect from oracle;
+quit;
+
+data Nine_B;
+ set Nine_A;
+ Week = week(datepart(batch_date));
+run;
+
+proc sql;
+	create table nine_b as select
+	MID_Tag, Ext_MID,  LTRIM_EXT_MID, Week, sum(DAILY_VOL) as WEEKLY_VOL  
+	from nine_b group by MID_Tag, Ext_MID,  LTRIM_EXT_MID , Week ; 
+quit;
+
+data Nine_B;
+ set Nine_B;
+ if week in (
+	&This_Week_min_2. ,
+	&This_Week_min_3. ,
+	&This_Week_min_4. ,
+	&This_Week_min_5. ,
+	&This_Week_min_6. ,
+	&This_Week_min_7. ,
+	&This_Week_min_8. ,
+	&This_Week_min_9. ,
+	&This_Week_min_10. 
+			)
+ then Week_Check = 1; else Week_Check = 0;	
+run;
+
+/*
+proc freq data = nine_b ;
+	tables week_check*week / list missing;
+run;
+*/
+
+Proc SQL;
+	create table Nine_C as select 
+		MID_Tag,
+		Ext_MID, 
+		LTRIM_EXT_MID, 
+		sum(Week_Check) as Week_Check
+	from Nine_B group by MID_Tag, Ext_MID, LTRIM_EXT_MID;
+Quit;
+
+/*
+proc freq data = nine_C ;
+	tables Week_Check / list missing;
+run;
+*/
+
+/*****************//*****************//*****************/
+/*****************//*****************//*****************/
+/*****************//* Six Week Small *//*****************/
+/*****************//*****************//*****************/
+/*****************//*****************//*****************/
+
+
+/* 
+	Take the daily average for each of the past 6 weeks.
+	If in any of those weeks the daily average was between 0.01 and 100.00
+	
+*/
+
+data _null_ ;
+ Call SymPutX('This_Week',week(today()));
+run;
+
+%PUT &This_Week.;
+
+proc sql;
+	connect to oracle (user = &TDSA_U. password = &TDSA_P. path= 'TDSA.WORLD');
+	Create table Six_A as select * from connection to oracle ( 
+	select 
+		MID_Tag,
+		Ext_MID, 
+		ltrim(Ext_MID,0) as LTRIM_EXT_MID, 
+		Batch_Date, 
+		sum(BATCH_NET_AMT) DAILY_VOL
+	from 	TDS.EHDR
+	where 	prcs_centre_cde = 'QUERE'       
+	and 	batch_date between &ORA_R52W_year_start. and &end_of_past_week.
+	group by MID_TAG, Ext_MID, BATCH_DATE );
+	disconnect from oracle;
+quit;
+
+data Six_B;
+ set Six_A;
+ Week = week(datepart(batch_date));
+ if mid_tag = . then delete;
+run;
+
+proc sql;
+	create table six_b as select
+	MID_Tag, Ext_MID,  LTRIM_EXT_MID, Week, 
+	avg(DAILY_VOL) as AVG_DAY_VOL,
+	sum(DAILY_VOL) as SUM_DAY_VOL  
+	from six_b group by MID_Tag, Ext_MID,  LTRIM_EXT_MID , Week ; 
+quit;
+
+data six_c ;
+ set six_b ;
+  if week in 	(	
+	&This_Week_min_2. ,
+	&This_Week_min_3. ,
+	&This_Week_min_4. ,
+	&This_Week_min_5. ,
+	&This_Week_min_6. ,
+	&This_Week_min_7. 
+				)
+  and  (AVG_DAY_VOL > 0 and AVG_DAY_VOL < 100)
+  then Week_Check = 1; else Week_Check = 0;	
+run;
+
+/*
+proc freq data = six_c ;
+	tables week_check*week / list missing;
+run;
+*/
+
+Proc SQL;
+	create table six_c as select 
+		MID_Tag,
+		Ext_MID, 
+		LTRIM_EXT_MID, 
+		sum(Week_Check) as Week_Check
+	from six_c group by MID_Tag, Ext_MID, LTRIM_EXT_MID;
+Quit;
+
+/*
+proc freq data = six_c ;
+	tables week_check / list missing;
+run;
+*/
+
+/***********************//***********************//***********************/
+/***********************//***********************//***********************/
+/***********************//* Industry Adjustment *//**********************/
+/***********************//***********************//***********************/
+/***********************//***********************//***********************/
+
+Proc Sql;
+	connect to oracle (user = &TDSA_U. password = &TDSA_P. path= 'TDSA.WORLD') ;
+	Create table Industry as select * from connection to oracle (select
+
+	/* IDs */
+	a.MID_TAG ,
+	a.External_MID as Ext_MID,
+	a.MER_KEY_ID ,
+
+	/* Key Dates, OPD - FDD - LDD - CLD */
+	a.Open_Date		as OPD ,
+	a.MER_ACT_DTE	as FDD ,
+	a.CLS_Dte		as CLD ,
+
+	/* ACQ Channel & Sub-Channel */
+	NVL (TRIM (c.ASC_DBA_NAM), 'OTHERS') as Channel ,
+	d.BUSNS_SEG_DSC_TXT					 as Sub_Channel	, 
+
+	/* Industry */
+	a.MCC_CDE ,
+	a.MCC_SEG_DESC ,
+	a.MCC_DSC ,
+
+	/* stat */
+	a.MER_STAT ,
+	a.MER_STAT_DTE ,
+	a.MER_STAT_TXT ,
+
+	/* Geographic */
+	a.MER_CTRY_CDE ,
+   	a.MER_CTRY_NAM ,
+	a.prcs_centre_cde as Prcssng_Cntr ,
+
+	/* Business Info */
+	a.MER_DBA_TXT
+
+	from 		UMID.RPT_T_MER  			a 
+	left join	HIMMS.T5_CUST_BUSNS_INFO	b on a.Mer_Key_id   = b.Merch_Key_id
+	left join	MPS3.ASC_T1					c on a.Assoc2 		= c.ASC_Num
+	left join	HIMMS.T5_BUSNS_SEGMENTS		d on b.Busns_Seg_id = d.Busns_Seg_id
+	
+	);
+	disconnect from oracle;
+quit;
+
+proc sort data = Industry nodupkey; by Ext_MID ; run;
+
+Proc SQL;
+	Create table Industry as select
+	a.*, 
+	c.segment     as MCC_Segment ,
+	c.sub_segment as MCC_Sub_Segment ,
+	c.description as MCC_Description
+	from Industry a 
+	left join loc_srs.mcc_seg c on compress(put(a.mcc_cde,4.)) = c.mcc_code ;
+Quit;
+
+data Industry;
+ set Industry;
+      if MCC_Sub_Segment = 'Apparel' then MCC_SEG_MOD =  compress(MCC_Segment)||" - "||MCC_Sub_Segment;
+ else if MCC_Sub_Segment = 'Stores'  then MCC_SEG_MOD =  compress(MCC_Segment)||" - "||MCC_Sub_Segment;
+ else if MCC_Segment     = 'Retail'  then MCC_SEG_MOD =  compress(MCC_Segment)||" - "||"Other";
+ else 									  MCC_SEG_MOD =  compress(MCC_Segment);	
+	
+      if MCC_SEG_MOD = 'Retail - Stores' and compress(MCC_Description) = 'FreezerLockerMeatProvisioners' then MCC_SEG_MOD = 'Retail - FLMP Stores';
+ else if MCC_SEG_MOD = 'Retail - Stores' and compress(MCC_Description) = 'DrugStoresPharmacies'  		 then MCC_SEG_MOD = 'Retail - Drug Stores';
+run;
+
+	
+/******************//******************//******************/
+/******************//******************//******************/
+/******************//* Multi-Pop-Up's *//******************/
+/******************//******************//******************/
+/******************//******************//******************/
+
+proc sql outobs = 4;
+ create table past_a as
+ select 
+ compress(libname||"."||memname) as ds_name 
+ from dictionary.tables 
+ where 	  libname = 'LOC_SRS' 
+ and 	  memname like 'MXN_WA_%' 
+ and 	  memname ne "&file_nm."
+ order by memname desc;
+quit;
+
+data past_b ;
+ set past_a ;
+ 		if _n_ =1 then letter ='a';
+ else	if _n_ =2 then letter ='b';
+ else	if _n_ =3 then letter ='c';
+ else	if _n_ =4 then letter ='d';
+ ds_name_v2 = ds_name||"(in="||letter||")";
+ run;
+
+proc sql ;
+	select ds_name_v2 into :Past_DSets separated by ' '
+	from past_b ;
+quit ;
+
+data Past_DSets ;
+ set &Past_DSets. ;
+ if Alert_Level > 0 and Change_in_Curr_Week ne . ;
+ 	  if a 	then W1_Ago = 1;
+ else if b  then W2_Ago = 1;
+ else if c	then W3_Ago = 1;
+ else if d	then W4_Ago = 1;
+Run;
+
+proc sql;
+	create table MID_CNT as select
+	External_ID ,
+	Count(*) as MID_CNT,
+	sum(w1_ago) as W1_Ago ,
+	sum(w2_ago) as W2_Ago ,
+	sum(w3_Ago) as W3_Ago ,
+	sum(w4_ago) as W4_Ago
+	from Past_DSets 
+	group by External_ID order by mid_cnt desc;
+quit;
+
+
+/******************//**********************//******************/
+/******************//**********************//******************/
+/******************//* The Last Ten Weeks *//******************/
+/******************//**********************//******************/
+/******************//**********************//******************/
+
+
+proc sql outobs = 10;
+ select 
+ compress(libname||"."||memname) into :ds_name separated by ' '
+ from dictionary.tables 
+ where 	  libname = 'LOC_SRS' 
+ and 	  memname like 'MXN_WA_%' 
+ and 	  memname ne "&file_nm."
+ order by memname desc;
+quit;
+
+data Past_DSets ;
+ set &DS_Name. ;
+ if Alert_Level > 0 and Change_in_Curr_Week ne . ;
+Run;
+
+proc sql;
+	create table TW_MID_CNT as select
+	External_ID , Count(*) as MID_CNT
+	from Past_DSets 
+	group by External_ID order by mid_cnt desc;
+quit;
+
+/***********************//***********************//***********************/
+/***********************//***********************//***********************/
+/***********************//* Append for base file *//**********************/
+/***********************//***********************//***********************/
+/***********************//***********************//***********************/
+
+
+proc sql ;
+	create table Weekly_Alert as select 
+	a.*, 
+	b.Current_Week_VOL		Format = Comma12.2,
+	c.R52W_AVG_Weekly_VOL	Format = Comma12.2,
+	d.Week_Check as Nine_Week_Check , 
+	e.Week_Check as Six_Week_Check ,
+	f.MCC_SEG_MOD ,
+	m.MID_CNT as RO_MC,
+	m.W1_Ago , 
+	m.W2_Ago ,
+	m.W3_Ago ,
+	m.W4_Ago ,
+	n.MID_CNT as TW_MC
+		
+	from 		loc_srs.WEEKLY_MXN_VOL_ALERT_2013_11_27 	a 
+	left join	Current_Week 			b  on a.External_ID 	=  b.Ext_MID
+	left join	AVG_Weekly_VOL			c  on a.External_ID 	=  c.Ext_MID 
+	left join 	nine_C					d  on a.External_ID 	=  d.Ext_MID 
+	left join	six_c					e  on a.External_ID 	=  e.Ext_MID 
+	left join   Industry				f  on a.External_ID  	=  f.Ext_MID 
+	left join   MID_CNT					m  on a.External_ID  	=  m.External_ID 
+	left join   TW_MID_CNT				n  on a.External_ID  	=  n.External_ID ;
+quit ;
+
+/*
+proc freq data = weekly_alert ; 
+	tables RO_MC / missing ;
+run ;
+*/
+
+proc sort data=weekly_alert nodupkey; by external_id; run;
+
+Proc SQL;
+	create table MCC_SEG_DELTA as select MCC_SEG_MOD, 
+	(sum(Current_Week_VOL)-sum(R52W_AVG_Weekly_VOL))/(sum(R52W_AVG_Weekly_VOL)) as MCC_SEG_DELTA
+	From Weekly_Alert Group by MCC_SEG_MOD;
+	create table weekly_alert as select a.*, MCC_SEG_DELTA
+	from weekly_alert a left join mcc_seg_delta b on a.mcc_seg_mod = b.mcc_seg_mod;
+Quit;
+
+data Weekly_Alert_v2;
+ *retain
+	External_ID	
+	MerchantDBAName	
+	Product_Name	
+	BUC	
+	MCC	
+	MCC_Description	
+	TAX_ID	
+	Merchant_Name	
+	Sub_Channel	
+	Region	
+	DBA_ADDR_1	
+	DBA_ADDR_2	
+	DBA_ADDR_3	
+	DBA_ADDR_State	
+	DBA_ADDR_Zip	
+	Principal_Phone_Number	
+	Legal_Contact_Phone	
+	NOV_Monto_Total	
+	Acum_Monto	
+	DIAO_Acum
+	Open_Date	
+	Activation_Date	
+	Products	
+	Tenure	
+	CURRENT_WEEK_VOL
+	R52W_AVG_Weekly_VOL
+	Change_in_Curr_Week
+	Seasonality
+	Tenure_Group	
+	Alert_Level
+ ;
+ set Weekly_Alert   ;
+
+ if MCC in (4900, 6010, 6011, 9222, 9311, 9399, 9402) 
+ or TW_MC = 10 then Delete;
+
+ if W1_Ago = . then W1_Ago = 0;
+ if W2_Ago = . then W2_Ago = 0;
+ if W3_Ago = . then W3_Ago = 0;
+ if W4_Ago = . then W4_Ago = 0;
+
+ Change_in_Curr_Week = (Current_Week_VOL - R52W_AVG_Weekly_VOL) / R52W_AVG_Weekly_VOL ;
+
+ Format Change_in_Curr_Week  Percent8.2 ;
+
+ if  (R52W_AVG_Weekly_VOL 	< 	15000) 
+ or  (Nine_Week_Check 	ne 	9) 
+ or  (Six_Week_Check	> 0 )
+ then delete;
+
+ if Change_in_Curr_Week < -.20 then Drop_in_VOL_20  = 1; else Drop_in_VOL_20 = 0 ;
+ if Change_in_Curr_Week < -.30 then Drop_in_VOL_30  = 1; else Drop_in_VOL_30 = 0 ;
+ if Change_in_Curr_Week < -.40 then Drop_in_VOL_40  = 1; else Drop_in_VOL_40 = 0 ;
+ if Change_in_Curr_Week < -.50 then Drop_in_VOL_50  = 1; else Drop_in_VOL_50 = 0 ;
+ if Change_in_Curr_Week < -.60 then Drop_in_VOL_60  = 1; else Drop_in_VOL_60 = 0 ;
+ if Change_in_Curr_Week < -.70 then Drop_in_VOL_70  = 1; else Drop_in_VOL_70 = 0 ;
+ if Change_in_Curr_Week < -.80 then Drop_in_VOL_80  = 1; else Drop_in_VOL_80 = 0 ;
+
+ /*if Drop_in_VOL_20 = 1 then Alert = 1; else Alert  = 0; */
+
+ if Drop_in_VOL_30 = 1 then Alert = 1; else Alert  = 0;
+
+ /* Industry W-to-W STD Rating */
+
+ /*
+ if compress(mcc_seg_mod) in ("Services", 
+"Auto/Transportation", "Retail-Stores", "Restaurants", "Retail-Apparel")
+ then Seasonality = 'High'; 
+ else Seasonality = 'Low';
+
+ if compress(mcc_seg_mod) in 
+ ("Auto/Transportation","Healthcare",     "Lodging",
+  "Restaurants",        "Retail-Apparel", "Retail-DrugStores"
+  "Retail-FLMPStores",  "Retail-Other",   "Retail-Stores"
+  "Services",		    "Wholesale")
+ and MCC_SEG_DELTA < Change_in_Curr_Week then Alert = 0;
+*/
+
+		if compress(mcc_seg_mod) = "Services"      											then Seasonality = 'High';
+ else	if compress(mcc_seg_mod) = "Restaurants"   and &This_Week. in (12,18,31,50) 		then Seasonality = 'High';
+ else	if compress(mcc_seg_mod) = "Lodging"	   and &This_Week. in (12,29,31,45) 		then Seasonality = 'High';
+ else	if compress(mcc_seg_mod) = "Auto/Transportation" 									then Seasonality = 'Low';
+ else	if compress(mcc_seg_mod) = "Retail-Other"  and &This_Week. in (45, 46) 				then Seasonality = 'High';
+ else	if compress(mcc_seg_mod) = "Retail-Stores" and &This_Week. in (45, 50) 				then Seasonality = 'High';
+ else	if compress(mcc_seg_mod) = "Retail-FLMPStores" 										then Seasonality = 'Low';
+ else	if compress(mcc_seg_mod) = "Retail-DrugStores" and &This_Week. in (19, 39, 45) 		then Seasonality = 'High';
+ else	if compress(mcc_seg_mod) = "Retail-Apparel" and &This_Week. in (18, 23, 32, 46, 50)	then Seasonality = 'High';
+ else	if compress(mcc_seg_mod) = "Healthcare" 											then Seasonality = 'Low';
+ else	if compress(mcc_seg_mod) = "Airlines"												then Seasonality = 'Low';
+ else	if compress(mcc_seg_mod) = "Moto"													then Seasonality = 'Low';
+ else	if compress(mcc_seg_mod) = "Wholesale" and &This_Week. in (19, 39, 45)				then Seasonality = 'High';
+																							else Seasonality = 'Low';
+
+/*
+		if MCC = "Services"      												then Seasonality = 'High';
+ else	if MCC = "Restaurants"  	 	and &This_Week. in (12,18,31,50) 		then Seasonality = 'High';
+ else	if MCC = "Lodging"	   			and &This_Week. in (12,29,31,45) 		then Seasonality = 'High';
+ else	if MCC = "Auto/Transportation" 											then Seasonality = 'Low' ;
+ else	if MCC = "Retail-Other"  		and &This_Week. in (45, 46) 			then Seasonality = 'High';
+ else	if MCC = "Retail-Stores" 		and &This_Week. in (45, 50) 			then Seasonality = 'High';
+ else	if MCC = "Retail-FLMPStores" 											then Seasonality = 'Low' ;
+ else	if MCC = "Retail-DrugStores" 	and &This_Week. in (19, 39, 45) 		then Seasonality = 'High';
+ else	if MCC = "Retail-Apparel" 		and &This_Week. in (18, 23, 32, 46, 50)	then Seasonality = 'High';
+ else	if MCC = "Healthcare" 													then Seasonality = 'Low' ;
+ else	if MCC = "Airlines"														then Seasonality = 'Low' ;
+ else	if MCC = "Moto"															then Seasonality = 'Low' ;
+ else	if MCC = "Wholesale" 			and &This_Week. in (19, 39, 45)			then Seasonality = 'High';
+																				else Seasonality = 'Low' ;
+*/
+
+TID = floor ((intck('day',opn_date,
+	&sas_curr_week_end.) - (day(&sas_curr_week_end.) < day(opn_date)))) ;  
+ TIY = TID / 365;
+ TIM = TIY*12; 
+ 
+ 	  if TIM le 4  then Tenure_Group = 'M1 - M4 ';
+ else if TIM le 12 then Tenure_Group = 'M5 - M12';
+ else 					Tenure_Group = 'M12+    ';
+
+	  if (alert = 1 and Tenure_Group = 'M1 - M4 ' and prosa_or_mit = 'PROSA' and Seasonality = 'High')
+      or (alert = 1 and Tenure_Group = 'M5 - M12' and prosa_or_mit = 'PROSA' and Seasonality = 'High')
+	  or (alert = 1 and Tenure_Group = 'M12+    ' and prosa_or_mit = 'PROSA' and Seasonality = 'High')
+      then Alert_Level = 1;
+
+ else if (alert = 1 and Tenure_Group = 'M1 - M4 ' and prosa_or_mit = 'PROSA' and Seasonality = 'Low')
+      or (alert = 1 and Tenure_Group = 'M5 - M12' and prosa_or_mit = 'PROSA' and Seasonality = 'Low')
+	  or (alert = 1 and Tenure_Group = 'M12+    ' and prosa_or_mit = 'PROSA' and Seasonality = 'Low')
+      then Alert_Level = 3;
+
+ else if (alert = 1 and Tenure_Group = 'M1 - M4 ' and prosa_or_mit = 'MIT' and Seasonality = 'Low')
+      or (alert = 1 and Tenure_Group = 'M5 - M12' and prosa_or_mit = 'MIT' and Seasonality = 'Low')
+	  or (alert = 1 and Tenure_Group = 'M12+    ' and prosa_or_mit = 'MIT' and Seasonality = 'Low')
+      then Alert_Level = 4;
+
+ else if (alert = 1 and Tenure_Group = 'M1 - M4 ' and prosa_or_mit = 'MIT' and Seasonality = 'High')
+      or (alert = 1 and Tenure_Group = 'M5 - M12' and prosa_or_mit = 'MIT' and Seasonality = 'High')
+	  or (alert = 1 and Tenure_Group = 'M12+    ' and prosa_or_mit = 'MIT' and Seasonality = 'High')
+      then Alert_Level = 2;
+
+  else Alert_Level = 0;
+
+ Week1_List = W1_Ago ;
+ Week2_List = W2_Ago ;
+ Week3_List = W3_Ago ;
+ Week4_List = W4_Ago ;
+ Past_Lists = sum(Week1_List, Week2_List, Week3_List, Week4_List);
+ if Past_Lists = . then Past_Lists = 0;
+
+ drop Nine_week_check six_week_check Drop_in_VOL_20
+	  Drop_in_VOL_30 Drop_in_VOL_40  Drop_in_VOL_50
+      Drop_in_VOL_60 Drop_in_VOL_70  Drop_in_VOL_80
+	  MCC_SEG_MOD tid tim tiy alert  MCC_SEG_DELTA
+	  W1_Ago W2_Ago W3_Ago W4_Ago RO_MC TW_MC;
+run;
+
+data &file_name. ;
+ set Weekly_Alert_v2 ;
+ run;
+
+Proc Datasets Lib=Work NoList NoDetails;
+	Delete 
+		AVG_WEEKLY_VOL
+		AWVY
+		AWVY_MATCH	
+		Current_Week
+		Dates
+		Industry
+		MCC_SEG_DELTA
+		MID_CNT
+		NINE_A	NINE_B	NINE_C
+		PAST_A	PAST_B	PAST_DSETS
+		SIX_A	SIX_B	SIX_C
+		TEST
+		TW_MID_CNT
+		UNI_MID_List1	UNI_MID_List2
+		Weekly_Alert
+		Weekly_Grouping ;
+Quit;
+
+proc print data = Weekly_Alert_v2  noobs ;
+	where Alert_Level > 0 and Change_in_Curr_Week ne . ;
+run ;
+
+/*
+
+Proc freq data = Weekly_Alert_v2 ;
+	where Alert_Level > 0 and Change_in_Curr_Week ne . ;
+	tables tenure_group*prosa_or_mit*Seasonality*alert_level / list;
+run;
+
+proc freq data = weekly_alert_v2 ; 
+	where Alert_Level > 0 and Change_in_Curr_Week ne . ;
+	tables Week1_List*Week2_List*Week3_List*Week4_List / missing list ;
+run ;
+
+*/
