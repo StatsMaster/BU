@@ -1,0 +1,1613 @@
+
+
+/* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//*~~~~~~~~~~~ *//* ~~~~~~~~~~~ */
+/* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//*~~~~~~~~~~~ *//* ~~~~~~~~~~~ */
+/* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//*~~~~~~~~~~~ *//* ~~~~~~~~~~~ */
+/*
+																						  2013-11-19
+	 ____    ____  _____  ______            _                   _______     ________  _____     
+	|_   \  /   _||_   _||_   _ `.         / |_                |_   __ \   |_   __  ||_   _|    
+	  |   \/   |    | |    | | `. \       `| |-' .--.            | |__) |    | |_ \_|  | |      
+	  | |\  /| |    | |    | |  | |        | | / .'`\ \          |  __ /     |  _| _   | |   _  
+	 _| |_\/_| |_  _| |_  _| |_.' /_______ | |,| \__. |_______  _| |  \ \_  _| |__/ | _| |__/ | 
+	|_____||_____||_____||______.'|_______|\__/ '.__.'|_______||____| |___||________||________|
+
+	
+*/
+/* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//*~~~~~~~~~~~ *//* ~~~~~~~~~~~ */
+/* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//*~~~~~~~~~~~ *//* ~~~~~~~~~~~ */
+/* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//* ~~~~~~~~~~~ *//*~~~~~~~~~~~ *//* ~~~~~~~~~~~ */
+
+
+/*
+	Tables of Contents for Relationship Roll Up (RRU)
+		#1	Pull Monthly Data - Create the base table
+		#2	Remove Closed Accounts
+		#3a	Build the Table of Tax ID Counts
+		#3b Build the table of Bank ID Counts
+		#4  Left join the tax ID counts to the base table
+		#5  Create the bank ID match key on the base table
+		#6  UNI QC
+		#7  Seperate the base dataset into three based on the rela groups: MANAGED, TAX, OTHER
+		#8  Left join the bank ID count to the OTHER table
+		#9  UNI QC 
+		#10 ID the MIDs Relationships and Relationship Type  
+		#11 Clean Up - Delete unneeded datasets
+		#12 UNI QC
+		#13 Build relationship level measurements
+		#14 Left join the CID bank card VOL
+		#15 UNI QC
+		#16 Create Small & Medium Business Identifier
+		#17 Upload file to Business Development
+*/
+
+/* #1 Pull Monthly Data */
+
+
+/* The starting period is the period before when you want pulling data */
+%let Starting_Period = '01FEB2013';
+
+/* %do x = 1 %to 71; */
+
+/* %do x = 1 %to 28; */
+
+*%do x = 1 %to 1;
+
+%Let x = 1 ;
+
+/* The Current Period */
+
+
+data _null_ ; 
+	Call Symputx
+	('Period',Upcase(Compress("'"||put(intnx('month',&Starting_Period.d,&x.),date9.)||"'"))) ; 
+run;
+
+
+/* The Current Period minus 11 months */
+
+
+data _null_ ; 
+	Call SymputX
+	('Period_Minus_11',Upcase(Compress("'"||put(intnx('month',&Period.d,-11),date9.)||"'"))) ; 
+run ;
+
+
+/* The Current Year */
+
+
+%let Curr_Year     = %sysfunc(year(&Period.D)) ;
+
+
+/* The Beginning of the Current Year */
+
+
+%let CBY = "01JAN&CURR_YEAR." ;
+data _null_ ; 
+	Call SymputX
+	('Curr_Beg_Year',Upcase(Compress("'"||put(&CBY.d,date9.)||"'"))) ; 
+run ;
+
+
+/* The Current Period minus 12 months */
+
+
+data _null_ ; 
+	Call SymputX
+	('Period_Minus_12',Upcase(Compress("'"||put(intnx('month',&Period.d,-12),date9.)||"'"))) ; 
+run ;
+
+
+/* The Last year */
+
+
+%let Last_Year     = %sysfunc(year(&Period_Minus_12.D)) ;
+
+
+/* The beginning of the last year */
+
+
+%let LBY = "01JAN&Last_YEAR." ;
+
+data _null_ ; 
+	Call SymputX
+	('Last_Beg_Year',Upcase(Compress("'"||put(&LBY.d,date9.)||"'"))) ; 
+run ;
+
+data _null_ ; 
+	Call SymputX
+	('Mon_Name',Upcase(substr(Compress(Put(&Period.D,monname.)),1,3))); 
+run;
+
+data _null_;
+ if month(&Period.D) < 10 then 
+	call symputx('Mon',compress("0"||put(month(&Period.D),4.)));
+ else call symputx('Mon',put(month(&Period.D),4.));
+run;
+
+%let T_Name 	= CAM_Scoring_&Curr_Year._&Mon.;
+
+%let T_Name 	= CAM_Scoring_&Curr_Year._&Mon._QC;
+
+%Put 
+The defined macro values are,
+	Period: &period. 
+	The Period year: &Curr_Year. 
+	The Period month: &mon_name. 
+	The Dataset name: &t_name 
+
+	Period minus 12 months: &Period_Minus_12.
+	Period minus 11 months: &Period_Minus_11.
+
+	The Beginning of this year 01 &CBY
+	The Beginning of this year 02 &Curr_Beg_Year
+	The Beginning of last year 01 &LBY
+	The Beginning of last year 01 &Last_Beg_Year
+;
+
+proc sql;
+	connect to oracle (user = &U. password = &P. path= 'NEWDW01.WORLD');
+
+create table &T_Name. as select * from connection to oracle ( select 
+a.addressable , 
+a.channel , 
+a.rdc , 
+c.sponsorid , 
+c.assocnumber , 
+z.mid , 
+c.dbaname , 
+c.merchstatus_ecp , 
+c.date_opened , 
+c.date_closed , 
+nvl(c.siccode,'0000') as SICCODE , 
+e.sic_description , 
+e.sector_rollup , 
+e.sub_rollup , 
+e.naics_6 , 
+e.naics_6_description , 
+e.naics_5 , 
+e.naics_5_description , 
+e.naics_4 ,
+e.naics_4_description , 
+e.naics_3 , 
+e.naics_3_description , 
+e.naics_2 , 
+e.naics_2_description , 
+c.fedtaxid , 
+c.fundingaba , 
+c.fundingdda , 
+
+d.group_ 						as REL_TYPE , 
+d.rel_long 						as RELATIONSHIP 
+
+from 	bsnsdevl.ccornettcam_assign		z ,
+		bsnsdevl.mid_owner 				a , 
+		browser.merch_demo_info_master 	c , 
+		bsnsdevl.mid_relationship 		d , 
+		bsnsdevl.naics_lu 				e 
+	
+where 	z.mid = a.mid (+)
+and 	z.mid = c.mid (+)
+and 	z.mid = d.mid (+)
+and 	nvl(c.siccode,'0000') = e.siccode (+) );
+disconnect from oracle;
+quit;
+
+proc sql;
+connect to oracle (user = &U. password = &P. path= 'NEWDW01.WORLD');
+
+create table RTM as select * from connection to oracle ( select 
+z.mid , 
+
+nvl(b.trancount,0)  			as BC_TRANCOUNT , 
+nvl(b.netvolume,0) 				as BC_VOLUME , 
+nvl(b.stm_discount,0) 		+ nvl(b.stm_surcharge,0) 	- nvl(b.pin_db_auth_income,0)
++ nvl(b.stm_authrevenue,0)	+ nvl(b.stm_ind_plan,0)
++ nvl(b.stm_data_cap,0) 	- nvl(b.tsys_intchg,0)	 	- nvl(b.assesments,0) as BC_DIA , 
+
+nvl(b.dscv_trancount,0) 		as DSCV_TRANCOUNT , 
+nvl(b.dscv_volume,0) 			as DSCV_VOLUME  , 
+nvl(b.dscv_discount,0) 		- nvl(b.dscv_interchange,0)	- nvl(b.dscv_assessments,0)
+ 								as DSCV_DIA , 
+
+nvl(b.pin_db_trancount,0) 		as PIN_DB_TRANCNT , 
+nvl(b.pin_db_volume,0) 			as PIN_DB_VOLUME  , 
+nvl(b.pin_db_discount,0) 		+ nvl(b.pin_db_auth_income,0)
+- nvl(b.pin_db_interchange,0) 	- nvl(b.pin_db_assessments,0) - nvl(b.pin_db_switch_fee,0) 	
+								as PIN_DB_DIA ,
+
+nvl(b.stm_discount,0) 			+ nvl(b.stm_surcharge,0) 		- nvl(b.pin_db_auth_income,0)
++ nvl(b.stm_authrevenue,0)		+ nvl(b.stm_ind_plan,0) 		+ nvl(b.stm_data_cap,0) 	
+- nvl(b.tsys_intchg,0)			- nvl(b.assesments,0) 			+ nvl(b.dscv_discount,0) 
+- nvl(b.dscv_interchange,0) 	- nvl(b.dscv_assessments,0) 	+ nvl(b.pin_db_discount,0) 
++ nvl(b.pin_db_auth_income,0)	- nvl(b.pin_db_interchange,0) 	- nvl(b.pin_db_assessments,0) 
+- nvl(b.pin_db_switch_fee,0) 						as MID_DIA , 
+nvl(b.stm_feerevenue,0) 		- nvl(b.pos_fee,0) 	as OTHER_REV , 
+
+nvl(b.stm_discount,0) 			+ nvl(b.stm_surcharge,0) 		- nvl(b.pin_db_auth_income,0)
++ nvl(b.stm_authrevenue,0)		+ nvl(b.stm_ind_plan,0)			+ nvl(b.stm_data_cap,0)
+- nvl(b.tsys_intchg,0)			- nvl(b.assesments,0) 			+ nvl(b.dscv_discount,0) 
+- nvl(b.dscv_interchange,0)		- nvl(b.dscv_assessments,0)		+ nvl(b.pin_db_discount,0) 
++ nvl(b.pin_db_auth_income,0) 	- nvl(b.pin_db_interchange,0) 	- nvl(b.pin_db_assessments,0) -
+ nvl(b.pin_db_switch_fee,0)		+ nvl(b.stm_feerevenue,0) 		- nvl(b.pos_fee,0) 
+as MID_DIAO
+
+from 	bsnsdevl.ccornettcam_assign		z ,		
+		browser.roll_mti 				b  
+			
+where 	z.mid = b.mid (+)
+and 	b.period = &Period. );
+
+disconnect from oracle;
+quit;
+
+/* MID Residual RTM */
+
+proc sql;
+connect to oracle (user = &U. password = &P. path= 'NEWDW01.WORLD');
+
+create table MID_R_RTM as select * from connection to oracle (select 
+		MID, sum(nvl(amount,0)) as MID_R 
+		from browser.mth_mid_residual where period
+		between &Period_Minus_11. and &Period. group by MID);
+
+
+/* MID Current YTD ( VOL, TRN, DIA, O, DIAO ) */
+
+
+create table CURR_YTD as select * from connection to oracle (select		
+		mid, 			 sum(nvl(a.trancount,0)) as CURR_YTD_TRN ,
+					     sum(nvl(a.netvolume,0)) as CURR_YTD_VOL ,
+	   	sum(nvl(a.stm_discount,	 	0) + nvl(a.stm_surcharge,		0) 		
+	 	+ 	nvl(a.stm_authrevenue, 	0) + nvl(a.stm_ind_plan,		0) 	+ nvl(a.stm_data_cap,0) 		
+	 	- 	nvl(a.tsys_intchg,	 	0) - nvl(a.assesments,		 	0) 			
+	 	+ 	nvl(a.dscv_discount,	0) - nvl(a.dscv_interchange,	0) 	- nvl(a.dscv_assessments,0) 
+	 	+ 	nvl(a.pin_db_discount, 	0) - nvl(a.pin_db_interchange, 	0)	- nvl(a.pin_db_assessments,	0) 	- nvl(a.pin_db_switch_fee,0))
+								as CURR_YTD_DIA ,
+		sum(nvl(a.stm_feerevenue,0) - nvl(a.pos_fee,0)) 
+								as CURR_YTD_O   ,
+		sum(nvl(a.stm_discount,0) 		+ nvl(a.stm_surcharge,0) 		- nvl(a.pin_db_auth_income,0)
+		+ nvl(a.stm_authrevenue,0)		+ nvl(a.stm_ind_plan,0)			+ nvl(a.stm_data_cap,0)
+		- nvl(a.tsys_intchg,0)			- nvl(a.assesments,0) 			+ nvl(a.dscv_discount,0) 
+		- nvl(a.dscv_interchange,0)		- nvl(a.dscv_assessments,0)		+ nvl(a.pin_db_discount,0) 
+		+ nvl(a.pin_db_auth_income,0) 	- nvl(a.pin_db_interchange,0) 	- nvl(a.pin_db_assessments,0) -
+ 		  nvl(a.pin_db_switch_fee,0)    + nvl(a.stm_feerevenue,0) 		- nvl(a.pos_fee,0))
+								as CURR_YTD_DIAO
+		from browser.merch_tran_info a 
+		where period between &Curr_Beg_Year. and &Period.    
+		group by MID );
+
+
+/* MID Last YTD ( VOL, TRN, DIA, O, DIAO ) */
+
+
+create table LAST_YTD as select * from connection to oracle (select 
+		mid, sum(nvl(a.trancount,0)) as LAST_YTD_TRN ,
+					 sum(nvl(a.netvolume,0)) as LAST_YTD_VOL ,
+	   	sum(nvl(a.stm_discount,	 	0) + nvl(a.stm_surcharge,		0) 		
+	 	+ 	nvl(a.stm_authrevenue, 	0) + nvl(a.stm_ind_plan,		0) 	+ nvl(a.stm_data_cap,0) 		
+	 	- 	nvl(a.tsys_intchg,	 	0) - nvl(a.assesments,		 	0) 			
+	 	+ 	nvl(a.dscv_discount,	0) - nvl(a.dscv_interchange,	0) 	- nvl(a.dscv_assessments,0) 
+	 	+ 	nvl(a.pin_db_discount, 	0) - nvl(a.pin_db_interchange, 	0)	- nvl(a.pin_db_assessments,	0) 	- nvl(a.pin_db_switch_fee,0))
+											as LAST_YTD_DIA ,
+		sum(nvl(a.stm_feerevenue,0) - nvl(a.pos_fee,0)) 
+											as LAST_YTD_O   ,
+	  sum(nvl(a.stm_discount,0) 		+ nvl(a.stm_surcharge,0) 		- nvl(a.pin_db_auth_income,0)
+		+ nvl(a.stm_authrevenue,0)		+ nvl(a.stm_ind_plan,0)			+ nvl(a.stm_data_cap,0)
+		- nvl(a.tsys_intchg,0)			- nvl(a.assesments,0) 			+ nvl(a.dscv_discount,0) 
+		- nvl(a.dscv_interchange,0)		- nvl(a.dscv_assessments,0)		+ nvl(a.pin_db_discount,0) 
+		+ nvl(a.pin_db_auth_income,0) 	- nvl(a.pin_db_interchange,0) 	- nvl(a.pin_db_assessments,0) -
+ 		  nvl(a.pin_db_switch_fee,0)    + nvl(a.stm_feerevenue,0) 		- nvl(a.pos_fee,0))
+											as LAST_YTD_DIAO
+		from browser.merch_tran_info a
+		where period between &Last_Beg_Year. and &Period_Minus_12.    
+		group by MID);
+
+
+/* VAS --{ EGC , ECS , DEBIT , DCC }-- */
+
+
+create table EGC as select * from connection to oracle (
+	select Distinct MID, 'Y' as EGC from aep.mersum_mersum where hasfrequency in ('1','Y'));
+
+create table ECS as select *  from connection to oracle (
+	select Distinct MID, 'Y' as ECS from aep.mersum_mersum where hasecc = 'Y');
+
+create table DBT as select * from connection to oracle (
+	select Distinct MID, 'Y' as DEBIT from dw.merchantcard where cardtypecode = 'DB' and captureind = '1');
+
+create table DCC as select * from connection to oracle (
+	select Distinct MID, 'Y' as DCC from browser.merch_demo_info_master where has_dcc = 'Y');
+ 
+disconnect from oracle;
+quit;
+
+proc sql;
+	create table &T_Name. as select a.*, 	
+
+	coalesce(z.BC_TRANCOUNT		, 0) 	as BC_TRANCOUNT	,
+	coalesce(z.BC_VOLUME 		, 0) 	as BC_VOLUME		,
+	coalesce(z.BC_DIA 			, 0) 	as BC_DIA			,
+	coalesce(z.DSCV_TRANCOUNT 	, 0) 	as DSCV_TRANCOUNT	,	
+	coalesce(z.DSCV_VOLUME 		, 0) 	as DSCV_VOLUME		,
+	coalesce(z.DSCV_DIA 		, 0) 	as DSCV_DIA		,
+	coalesce(z.PIN_DB_TRANCNT 	, 0) 	as PIN_DB_TRANCNT	,
+	coalesce(z.PIN_DB_VOLUME 	, 0) 	as PIN_DB_VOLUME 	,	
+	coalesce(z.PIN_DB_DIA		, 0) 	as PIN_DB_DIA		,
+	coalesce(z.MID_DIA	 		, 0) 	as MID_DIA			,
+	coalesce(z.OTHER_REV	  	, 0) 	as OTHER_REV		,
+	coalesce(z.MID_DIAO			, 0) 	as MID_DIAO 	   	,
+
+	coalesce(b.MID_R,0) 		 		as MID_R ,
+
+	coalesce(c.Curr_YTD_TRN  , 0) 		as Curr_YTD_TRN  ,
+	coalesce(c.Curr_YTD_VOL  , 0) 		as Curr_YTD_VOL  ,
+	coalesce(c.Curr_YTD_DIA  , 0) 		as Curr_YTD_DIA  ,
+	coalesce(c.Curr_YTD_O    , 0) 		as Curr_YTD_O    ,
+	coalesce(c.Curr_YTD_DIAO , 0) 		as Curr_YTD_DIAO ,
+
+	coalesce(d.Last_YTD_TRN  , 0) 		as Last_YTD_TRN  ,
+	coalesce(d.Last_YTD_VOL  , 0) 		as Last_YTD_VOL  ,
+	coalesce(d.Last_YTD_DIA  , 0) 		as Last_YTD_DIA  ,
+	coalesce(d.Last_YTD_O    , 0) 		as Last_YTD_O    ,
+	coalesce(d.Last_YTD_DIAO , 0) 		as Last_YTD_DIAO ,
+
+	coalesceC(e.EGC,  'N')		  		as EGC   ,	
+	coalesceC(f.ECS,  'N')		  		as ECS   ,
+	coalesceC(g.DEBIT,'N')		  		as DEBIT ,
+	coalesceC(h.DCC,  'N')		  		as DCC
+
+	from 		&T_Name. 	a 
+	left join	RTM			z on a.mid = z.mid
+	left join	MID_R_RTM	b on a.mid = b.mid
+	left join	CURR_YTD	c on a.mid = c.mid
+	left join	LAST_YTD	d on a.mid = d.mid 
+	left join 	EGC			e on a.mid = e.mid 
+	left join 	ECS			f on a.mid = f.mid 
+	left join	DBT			g on a.mid = g.mid 
+	left join	DCC			h on a.mid = h.mid ;
+
+Quit;
+
+/* DCC ACT */
+
+proc sql;
+	connect to oracle (user = &U. password = &P. path= 'NEWDW01.WORLD') ;
+
+	create table DCC_ACT_2014_01 as select * from connection to oracle ( Select
+	MID,
+	trancount 		as DCC_ACT_TRN ,
+	volume			as DCC_ACT_VOL ,
+	Disc_charged	as DCC_ACT_RBT 
+	from dw.merchtrandetail where period = '01-JAN-2014' 
+	and cardtype = 'CC'  and chg_type_number = '0040' ) ;
+
+	create table DCC_ACT_2014_02 as select * from connection to oracle ( Select
+	MID,
+	trancount 		as DCC_ACT_TRN ,
+	volume			as DCC_ACT_VOL ,
+	Disc_charged	as DCC_ACT_RBT 
+	from dw.merchtrandetail where period = '01-FEB-2014' 
+	and cardtype = 'CC'  and chg_type_number = '0040' ) ;
+
+	create table DCC_ACT_2014_03 as select * from connection to oracle ( Select
+	MID,
+	trancount 		as DCC_ACT_TRN ,
+	volume			as DCC_ACT_VOL ,
+	Disc_charged	as DCC_ACT_RBT 
+	from dw.merchtrandetail where period = '01-MAR-2014' 
+	and cardtype = 'CC'  and chg_type_number = '0040' ) ;
+
+	disconnect from oracle ;
+quit ;
+
+data DCC_ACT ;
+ set DCC_ACT_2014_01
+ 	 DCC_ACT_2014_02
+	 DCC_ACT_2014_03 ;
+	 DCC_ACT_RBT = abs(DCC_ACT_RBT);
+run ;
+
+proc sql;
+	create table DCC_ACT_v2 as select
+	MID,
+	sum(DCC_ACT_TRN) as DCC_ACT_TRN ,
+	sum(DCC_ACT_VOL) as DCC_ACT_VOL ,
+	sum(DCC_ACT_RBT) as DCC_ACT_RBT  
+	from DCC_ACT group by MID;
+quit;
+
+/*
+Proc SQL;
+	Drop table DCC_ACT_2014_01 ;
+	Drop table DCC_ACT_2014_02 ;
+	Drop table DCC_ACT_2014_03 ;
+	Drop table DCC_ACT ;
+Quit;
+*/
+
+/* DCC OPP */
+
+proc sql;
+	connect to oracle (user = &U. password = &P. path= 'NEWDW01.WORLD') ;
+	create table DCC_OPP_2014_01 as select * from connection to oracle ( Select *	
+		from BSNSDEVL.DCC_OPP_2014_01) ;
+	create table DCC_OPP_2014_02 as select * from connection to oracle ( Select *	
+		from BSNSDEVL.DCC_OPP_2014_02) ;
+	create table DCC_OPP_2014_03 as select * from connection to oracle ( Select *	
+		from BSNSDEVL.DCC_OPP_2014_03) ;
+	disconnect from oracle ;
+quit ;
+
+data DCC_OPP ;
+ set DCC_OPP_2014_01
+ 	 DCC_OPP_2014_02
+	 DCC_OPP_2014_03 ;
+run ;
+
+proc sql;
+	create table DCC_OPP_v2 as select
+	MID,
+	sum(DCC_OPP_IC) as DCC_OPP_TRN ,
+	sum(DCC_OPP_AM) as DCC_OPP_VOL 
+	from DCC_OPP group by MID;
+quit;
+
+/*
+Proc SQL;
+	Drop table DCC_OPP_2014_01 ;
+	Drop table DCC_OPP_2014_02 ;
+	Drop table DCC_OPP_2014_03 ;
+	Drop table DCC_OPP ;
+Quit;
+*/
+
+proc sql;
+	Create table DCC_USE as select 
+	coalesceC(a.MID,b.MID) as MID ,
+		DCC_OPP_TRN , 
+		DCC_OPP_VOL ,
+		DCC_ACT_TRN , 
+		DCC_ACT_VOL , 
+		DCC_ACT_RBT  
+	from DCC_OPP_v2 a full join DCC_ACT_v2 b on a.mid = b.mid ;
+Quit ;
+
+/*
+Proc SQL;
+	Drop table DCC_OPP_v2 ;
+	Drop table DCC_ACT_v2 ;
+Quit;
+*/
+
+/*
+	STEP 3: Determine the amount of raw currency an account could convert through DCC
+*/
+
+
+/* Expected Capture of DCC Volume */
+%let Exp_Capture = 0.65;
+
+data DCC_USE_v2 ;
+ set DCC_USE ;
+
+ /* 
+ data cleaning
+ If the ACT variables have values but the OPP does not input the ACT
+ values as the OPP values.
+ */
+
+ if DCC_ACT_TRN = . then DCC_ACT_TRN = 0 ;
+ if DCC_ACT_VOL = . then DCC_ACT_VOL = 0 ;
+ if DCC_ACT_RBT = . then DCC_ACT_RBT = 0 ;
+
+ if DCC_OPP_TRN = . then DCC_OPP_TRN = DCC_ACT_TRN ;
+ if DCC_OPP_VOL = . then DCC_OPP_VOL = DCC_ACT_VOL ;
+
+ /* The estimate revenue to Elavon for the current DCC accounts */
+
+ DCC_EST_REV    = (DCC_ACT_VOL*0.03)-DCC_ACT_RBT ;
+
+ /* The estimated rev/vol rate for the current DCC accounts */
+ EST_REV_VOL_RT =  DCC_EST_REV/DCC_ACT_VOL ;
+
+ /* If there is no rate, then revenue is estimated as 2% of the realistic volume */
+ if EST_REV_VOL_RT = . then EST_REV_VOL_RT = 0.02;
+
+ /* Question: How much of the current potential VOL is the customer using converting using DCC? */
+ DCC_UTILIZATION = abs(DCC_ACT_VOL) / abs(DCC_OPP_VOL) ;
+
+ /* If the dirty data results in > 100% utilization, flatten to 100% */
+ if DCC_UTILIZATION > 1 then DCC_UTILIZATION =  1;
+
+ /* 
+ Define: DCC Utilization Opportunity
+ The difference between the realistic volume capture and the actual utilization.
+ */
+ DCC_UTIL_OPP = &Exp_Capture. - DCC_UTILIZATION ;
+ if DCC_UTIL_OPP = . then DCC_UTIL_OPP = &Exp_Capture. ;
+ if DCC_UTIL_OPP < 0 then DCC_UTIL_OPP = 0 ;
+
+ /*
+ Define: DCC Volume Opportunity
+ The total raw currency avaliable to be converted x DCC Utilization Opportunity
+ */
+ DCC_REAL_OPP_VOL 		= DCC_UTIL_OPP*DCC_OPP_VOL ;
+
+ /* (Annl.) The DCC Revenue Opportunity for Elavon */
+ Annl_DCC_REAL_OPP_REV 		= (DCC_REAL_OPP_VOL*4)*EST_REV_VOL_RT ;
+
+ /* (Annl.) The DCC Revenue Opportunity for the Customer */
+ Annl_DCC_REL_REAL_OPP_REV	= (DCC_REAL_OPP_VOL*4)*(0.03-EST_REV_VOL_RT) ;
+
+ Format 
+	DCC_REAL_OPP_VOL 
+	DCC_ACT_RBT 
+	DCC_EST_REV
+	Annl_DCC_REAL_OPP_REV
+	Annl_DCC_REL_REAL_OPP_REV
+	Dollar14.0 
+	DCC_UTILIZATION 
+	DCC_UTIL_OPP 
+	EST_REV_VOL_RT
+	Percent8.2 ;
+run ;
+
+proc sort data = DCC_USE_v2 NoDupKey; by MID ; run ;
+
+/*
+Proc SQL;
+	Drop table DCC_USE ;
+Quit;
+*/
+
+Proc sql;
+	create table &T_Name. as select a.*, 
+		coalesce(b.DCC_OPP_TRN,0) 					as DCC_OPP_TRN_YTD 				,
+		coalesce(b.DCC_OPP_VOL,0) 					as DCC_OPP_VOL_YTD 				,
+		coalesce(b.DCC_ACT_TRN,0) 					as DCC_ACT_TRN_YTD 				,
+		coalesce(b.DCC_ACT_VOL,0) 					as DCC_ACT_VOL_YTD 				,
+		coalesce(b.DCC_ACT_RBT,0) 					as DCC_ACT_RBT_YTD 				,
+		coalesce(b.DCC_EST_REV,0) 					as DCC_EST_REV_YTD 				,	
+		coalesce(b.EST_REV_VOL_RT,0.02)				as DCC_EST_REV_VOL_RT 			,	 
+		coalesce(b.DCC_UTILIZATION,0)				as DCC_UTILIZATION_YTD 			,
+		coalesce(b.DCC_UTIL_OPP,0)					as DCC_UTIL_OPP_YTD 			,
+		coalesce(b.DCC_REAL_OPP_VOL,0)				as DCC_OPP_VOL_REAL_YTD			,
+		coalesce(b.Annl_DCC_REAL_OPP_REV,0)			as DCC_OPP_REV_REAL_ELV_ANNL 	,
+		coalesce(b.Annl_DCC_REL_REAL_OPP_REV,0) 	as DCC_OPP_REV_REAL_REL_ANNL 
+	from &T_Name. a left join DCC_USE_v2 b on a.mid = b.mid;
+Quit;
+
+/* Does the MID have any terminals able to process DCC ? */
+
+proc sql;
+	connect to oracle (user=&U. password=&P. path='NEWDW01.WORLD');
+		create table DCC_TERM_CAPABLE as select * 
+		from connection to oracle (select distinct
+		a.MID ,
+		a.Model  	as Terminal ,
+		a.date_last_update			as Last_Terminal_Use ,
+		b.DCC_CAPABLE 
+		from aep.equipmnt_merequip a left join BSNSDEVL.dcc_pos b on a.model = b.pos_device
+		where 	a.type_='T'   
+		and 	a.date_last_update between '01-JAN-2014' and '31-MAR-2014' );
+	disconnect from oracle;
+quit;
+
+proc sql;
+	create table DCC_TERM_CAPABLE as select Distinct
+	MID ,
+	Compress(Upcase(Terminal)) as Terminal ,
+	Last_Terminal_Use ,
+	DCC_CAPABLE 
+	from DCC_TERM_CAPABLE;
+quit;
+
+proc sql;
+	create table DCC_TERM_CAPABLE_v2 as select MID, 
+	sum(case when DCC_CAPABLE = 'C' then 1 else 0 end) as DCC_TERM_ABLE_CNT
+	from DCC_TERM_CAPABLE group by MID;
+
+	create table &T_Name. as select a.*, 
+	coalesce(b.DCC_TERM_ABLE_CNT,0) as DCC_TERM_ABLE_CNT 
+	from &T_Name. a left join DCC_TERM_CAPABLE_v2 b on a.mid = b.mid;
+quit;
+
+/*
+Proc sql;
+	drop table DCC_TERM_CAPABLE ;
+	drop table DCC_TERM_CAPABLE_v2 ;
+quit;
+*/
+
+/*
+ __      __   _              _           _   
+ \ \    / /  | |       /\   | |         | |  
+  \ \  / /__ | |      /  \  | | ___ _ __| |_ 
+   \ \/ / _ \| |     / /\ \ | |/ _ \ '__| __|
+    \  / (_) | |_   / ____ \| |  __/ |  | |_ 
+     \/ \___/|_(_) /_/    \_\_|\___|_|   \__|
+                                             
+                                             
+
+*/
+
+
+%let Today = %sysfunc(today(),Date9.) ; 
+
+data Dates ;
+	Format ELW_Period FTW_Period date9.;
+
+	ELW_Period = intnx('week',"&Today."D,-1,'E');
+	ELW_WK_NBR = week(ELW_Period);
+	ELW_MonName = Upcase(substr(Compress(Put(ELW_Period,monname.)),1,3)) ;
+	if day(ELW_period) < 10 then ELW_DayName = compress("0"||put(day(ELW_Period),5.));
+	else ELW_DayName = compress(put(day(ELW_Period),5.));
+	ELW_YerName = put(Year(ELW_Period),5.);
+    ELW = Compress("'"||ELW_DayName||"-"||ELW_MonName||"-"||ELW_YerName||"'") ;
+    Call SymputX('ELW',ELW) ;
+
+	FTW_Period = intnx('week',"&Today."D,-52,'B');
+	FTW_MonName = Upcase(substr(Compress(Put(FTW_Period,monname.)),1,3)) ;
+	if day(FTW_period) < 10 then FTW_DayName = compress("0"||put(day(FTW_Period),5.));
+	else FTW_DayName = compress(put(day(FTW_Period),5.));
+	FTW_YerName = put(Year(FTW_Period),5.);
+    FTW = Compress("'"||FTW_DayName||"-"||FTW_MonName||"-"||FTW_YerName||"'") ;
+    Call SymputX('FTW',FTW) ;
+
+    Call SymputX('Last_Week_NBR',ELW_WK_NBR);
+run ;
+
+Data P52W;
+ Format Period Date9. ;
+	do X = 1 to 52; 
+		Period = intnx('week',"&Today."D,-X,'E') ;	
+		Week_Number = Week(Period); output;
+	end;
+Run;
+
+Proc Sql;
+	Select Week_Number into :Last_12_Weeks SEPARATED by ',' from P52W where X le 12 ; 
+	Select Week_Number into :Last_30_Weeks SEPARATED by ',' from P52W where X le 30 ; 
+Run;
+
+%Put 
+	The past 12 weeks are &Last_12_Weeks
+	The past 30 weeks are &Last_30_Weeks
+;
+
+Data PTW;
+	do i = 1 to 52;
+		Period = intnx('week',"&Today."D,-i,'E') ;	
+		output;
+	end;
+Run;
+
+%Put
+What was the date 52 weeks ago? &FTW 
+What is Today? &TODAY 
+What was the end of last week? &ELW  
+What was last weeks week number? &Last_Week_NBR 
+;
+
+proc sql;
+	connect to oracle (user = &TDSA_U. password = &TDSA_P. path= 'TDSA.WORLD');
+	Create table NA_VOL_v1 as select * from connection to oracle( 
+	select MID_Tag, Ext_MID, batch_date, sum(BATCH_NET_AMT) day_vol
+	from 	TDS.EHDR
+	where 	prcs_centre_cde = 'NA'       
+	and 	batch_date between &FTW. and &&ELW.
+	group by MID_TAG, Ext_MID, batch_date ) ;
+	disconnect from oracle ;
+quit ;
+
+data NA_VOL_v2 ;
+ set NA_VOL_v1    ;
+ format Day Date9. ;
+ Day  = datepart(batch_date) ;
+ Week = week(Day) ;
+run ;
+
+proc sql ;
+	create table NA_VOL_v3 as select
+	Ext_MID, Week, sum(abs(day_vol)) as Week_Vol
+	from NA_VOL_v2 
+	group by Ext_MID, Week ;
+quit ;
+
+data Week_Count ;
+ set NA_VOL_v3 ;
+ if week in (&Last_12_Weeks.) then WC_12 = 1;  else WC_12 = 0;
+ if week in (&Last_30_Weeks.) then WC_30 = 1;  else WC_30 = 0;
+run;
+
+Proc sql;
+	Create table Week_Count_v2 as select
+	Ext_MID ,
+	sum(WC_12) as WC_12,
+	sum(WC_30) as WC_30
+	from Week_Count group by Ext_MID;
+
+	create table FTW_CnS as select 
+	Ext_MID,
+	count(Week)   as NBR_of_Weeks ,
+	std(Week_Vol) as WtW_STD ,
+	avg(Week_Vol) as Wtw_AVG 
+	from NA_VOL_v3
+	group by Ext_MID;
+
+	Create table NA_VOL_v4 as select
+	a.Ext_MID , 
+	a.Week , 
+	a.Week_Vol as Curr_Week_Vol Format = Dollar10.0,   
+	b.NBR_of_Weeks , 	
+	b.WtW_STD 					Format = Dollar10.0 , 
+	b.WtW_STD*2  as STD_2_PLS 	Format = Dollar10.0 , 
+	b.Wtw_AVG 					Format = Dollar10.0 ,
+	b.WtW_STD*-2 as STD_2_MIN 	Format = Dollar10.0 , 
+	b.Wtw_AVG+(b.WtW_STD*-2) as Two_STD_Below_AVG Format = Dollar10.0 ,
+	c.WC_12 ,
+	c.WC_30
+
+	from NA_VOL_v3 	a 
+	left join FTW_CnS 		b on a.Ext_MID = b.Ext_MID
+	left join Week_Count_v2 c on a.Ext_MID = c.Ext_MID
+	where a.Week = &Last_Week_NBR. ;
+Quit ;
+
+Proc Sort data = NA_VOL_v4 NoDupKey; by ext_mid; run;
+
+data NA_VOL_v5 ;
+ set NA_VOL_v4 ;
+ if Two_STD_Below_AVG < 0 then Two_STD_Below_AVG = 0;
+ if (Curr_Week_Vol < (Two_STD_Below_AVG)) and WC_12 ge 12 then Vol_Alert_12WD = 1; else Vol_Alert_12WD = 0;
+ if (Curr_Week_Vol < (Two_STD_Below_AVG)) and WC_30 ge 30 then Vol_Alert_30WD = 1; else Vol_Alert_30WD = 0;
+run;
+
+proc sql;
+	create table &T_Name. as select a.*, 
+		v.Curr_Week_Vol ,
+		v.Wtw_AVG as Week_to_Week_Avg_Vol ,
+		v.Vol_Alert_12WD as Volume_Alert 
+	from &T_Name. a left join NA_VOL_v5 v on a.mid = v.ext_mid;
+quit;
+
+/*
+proc sql;	
+	drop table NA_VOL_v5;
+	drop table NA_VOL_v4;
+	drop table NA_VOL_v3;
+	drop table NA_VOL_v2;
+	drop table NA_VOL_v1;
+quit;
+*/
+
+/*
+	Build an Index on the Table
+*/
+
+Proc Datasets library = Work NoList NoDetails;
+	modify &T_Name. ;
+	index create MID ;
+run;
+
+proc sql;
+
+/* #3a  Build the table of tax id counts */
+
+	create table MULTI_TAX_ID as select  fedtaxid, Count(*) as TAX_CNT 
+	from 	&T_Name.
+	where 	coalesce(fedtaxid,'0') not in ('0', '999999999', '000000000','0000000000')  
+	and		REL_TYPE not in ('AIRLN', 'HOSP', 'RM', 'RM2')
+Group by fedtaxid ;
+
+/* #3b  Build the table of bank id counts */
+
+	create table MULTI_DDA_ID as select compress(fundingaba||fundingdda) as BNK_ID,
+ 	Count(*) as BNK_CNT from &T_Name.
+	where 	coalesce(compress(fundingaba||fundingdda),'0') ne '0' 
+	and		REL_TYPE not in ('AIRLN', 'HOSP', 'RM', 'RM2')
+	Group by compress(fundingaba||fundingdda) ;
+
+/* #4  left join the tax counts to the base table */
+
+	create table &T_Name. as select a.*, b.TAX_CNT 
+	from &T_Name. a left join MULTI_TAX_ID b on a.fedtaxid = b.fedtaxid ;
+
+quit;
+
+proc sql; drop table MULTI_TAX_ID; quit;
+
+/* #5  Create the bank ID match key on the base table */
+
+data &T_Name.;
+ set &T_Name.;
+ BNK_ID = compress(fundingaba||fundingdda);
+run;
+
+/* #6  UNI QC */
+
+proc sort data = &T_Name. NoDupKey; by mid; run;
+
+/* 	#7  Seperate the MIDs into three groups 
+	first, Managed relationships
+	second, MIDs with tax counts great than one
+	last, the remaining MIDS */
+
+data 	SMB_ID_Managed 
+		SMB_ID_FEDTAXID
+		SMB_ID_OTHER;
+set &T_Name.;
+		if Rel_Type in ('AIRLN', 'HOSP', 'RM', 'RM2') then Output SMB_ID_Managed ;
+else	if TAX_CNT	> 1 then output SMB_ID_FEDTAXID ;
+else output SMB_ID_OTHER;
+run;
+
+/* #8  For the remaining MIDs left join the bank count */
+
+data SMB_ID_OTHER_1 SMB_ID_OTHER_2 
+	 SMB_ID_OTHER_3 SMB_ID_OTHER_4
+	 SMB_ID_OTHER_5 SMB_ID_OTHER_6
+     SMB_ID_OTHER_7 SMB_ID_OTHER_8
+	 SMB_ID_OTHER_9 SMB_ID_OTHER_10 ;
+ set SMB_ID_OTHER ;
+ random = ranuni(20120214);
+      if random <= 0.10 then output SMB_ID_OTHER_1 ;
+ else if random <= 0.20 then output SMB_ID_OTHER_2 ;
+ else if random <= 0.30 then output SMB_ID_OTHER_3 ;
+ else if random <= 0.40 then output SMB_ID_OTHER_4 ;
+ else if random <= 0.50 then output SMB_ID_OTHER_5 ;
+ else if random <= 0.60 then output SMB_ID_OTHER_6 ;
+ else if random <= 0.70 then output SMB_ID_OTHER_7 ;
+ else if random <= 0.80 then output SMB_ID_OTHER_8 ;
+ else if random <= 0.90 then output SMB_ID_OTHER_9 ;
+ else if random <= 1.00 then output SMB_ID_OTHER_10 ;
+ drop random;
+run;
+
+%macro mini_loop;
+%do j = 1 %to 10;
+proc sql;
+	create table BNK_ID_LIST as select distinct BNK_ID, BNK_CNT
+	from MULTI_DDA_ID where BNK_ID in (select distinct bnk_id from SMB_ID_OTHER_&j.);
+
+	create table SMB_ID_OTHER_&j. as select a.*, c.BNK_CNT  
+	from SMB_ID_OTHER_&j. a  left join BNK_ID_LIST c on a.BNK_ID = c.BNK_ID;
+quit;
+%end;
+proc sql; drop table BNK_ID_LIST; quit;
+%mend;
+%mini_loop
+
+proc sql; drop table MULTI_DDA_ID; quit;
+
+data SMB_ID_OTHER;
+ set SMB_ID_OTHER_1 SMB_ID_OTHER_2 
+	 SMB_ID_OTHER_3 SMB_ID_OTHER_4
+	 SMB_ID_OTHER_5 SMB_ID_OTHER_6
+     SMB_ID_OTHER_7 SMB_ID_OTHER_8
+	 SMB_ID_OTHER_9 SMB_ID_OTHER_10;
+run;
+
+proc datasets lib = work NoDetails NoList; 
+	Delete 
+     SMB_ID_OTHER_1 SMB_ID_OTHER_2 
+	 SMB_ID_OTHER_3 SMB_ID_OTHER_4
+	 SMB_ID_OTHER_5 SMB_ID_OTHER_6
+     SMB_ID_OTHER_7 SMB_ID_OTHER_8
+	 SMB_ID_OTHER_9 SMB_ID_OTHER_10; 
+quit;
+
+/* #9  UNI QC */
+
+proc sort data = SMB_ID_OTHER NoDupKey; by mid; run;
+
+/* 
+	#10 ID the MIDs Relationship and Relationship Type  
+
+	a.) Stack the three datasets, managed, tax, other 
+	b.) If the MID has a previously defined relationship, keep that rel info the same 
+	c.) If the MID was found to have a tax ID greater than 1, use the fed tax ID as their relationship information
+	d.) If the MID was found to have a bank ID greater than 1, use the aba/dda as their relationship information
+	c.) last, if no info was found, the customer is assumed to be represented by a solo account
+*/
+
+data &T_Name. ;
+ set SMB_ID_Managed 
+	 SMB_ID_FEDTAXID
+	 SMB_ID_OTHER ;
+
+	 	if Rel_Type in ('AIRLN', 'HOSP', 'RM', 'RM2') then
+							do; rel_type =  rel_type; 	Relationship = Relationship; 					 end;   
+ else	if TAX_CNT > 1 then do; rel_type = 'FEDTAXID'; 	Relationship = fedtaxid;						 end;
+ else 	if BNK_CNT > 1 and fundingaba ne '' and fundingdda ne ''
+					   then do; rel_type = 'ABA_DDA';  	Relationship = compress(fundingaba||fundingdda); end;
+ else					    do; rel_type = 'MID'; 		Relationship = MID; 							 end;
+ 		if REL_TYPE in ('AIRLN','RM','RM2','HOSP') then Managed = 'Y'; else Managed ='N';
+		if sponsorid = '0019' then MID_R  = 0;
+		if MID_R = . then MID_R = 0;
+Run;
+
+/* #11  Clean Up */
+
+proc datasets lib = work NoDetails NoList; 
+	Delete SMB_ID_Managed SMB_ID_FEDTAXID SMB_ID_OTHER ; 
+quit;
+
+/* #12  UNI QC */
+
+proc sort data = &T_Name. NoDupKey; by mid; run;
+
+proc sql;
+
+/* #13  Build Relationship Level Measurements */
+
+	create table Rela_BC as select 
+		Relationship ,
+		Count(Distinct MID)				as Rel_MIDCNT ,	
+		sum(coalesce(bc_trancount,0)) 	as Rel_BC_TRANCOUNT ,
+		sum(coalesce(bc_volume,0)) 		as Rel_BC_VOL , 
+		sum(coalesce(bc_dia,0)) 		as Rel_BC_DIA ,
+		sum(coalesce(mid_dia,0)) 		as Rel_DIA ,
+		sum(coalesce(mid_diao,0)) 		as Rel_DIAO ,
+		sum(coalesce(mid_R,0)) 			as Rel_R
+	from &T_Name.  
+	group by Relationship;
+quit;
+
+/* Sort the data by BC volume within relationships */
+
+proc sort data = &T_Name. Out = Top;
+	by Relationship descending bc_volume ;
+Run;
+
+/* Keep only the first record, (highest VOL), for each relationship */
+
+proc sort data = Top NoDupKey;
+	by Relationship;
+run;
+
+data Top;
+ set Top;
+ Rel_Top_MID = 'Y';
+run;
+
+/* #14  Left join the CID bank card VOL */
+
+proc sql;
+	create table &T_Name. as select a.* , 
+		b.Rel_MIDCNT ,	
+		b.Rel_BC_TRANCOUNT ,
+		b.Rel_BC_VOL , 
+		b.Rel_BC_DIA ,
+		b.Rel_DIA ,
+		b.Rel_DIAO , 
+		b.Rel_R , 
+		c.Rel_Top_MID
+	from &T_Name. 		a 
+	left join Rela_BC 	b on a.Relationship = b.Relationship
+	left join Top		c on a.mid = c.mid;
+quit;
+
+proc datasets lib = work NoDetails NoList; 
+	Delete rela_bc Top ; 
+quit;
+
+/* #15  UNI QC */
+
+proc sort data = &T_Name. NoDupKey; by mid; run;
+
+/* 
+	#16  
+		Small & Medium Business Identifier
+	Each MID with a CID RTM BC VOL < $5M is SMB
+
+		Top MID Identifier
+	The MID with the biggest amount of bank card VOL
+*/
+
+data &T_Name.;
+ set &T_Name.;
+ if Rel_Top_MID ne 'Y' then Rel_Top_MID = 'N';
+ if rel_bc_vol < 5000000 then SMB = 1; else SMB = 0;
+ if Tax_Cnt = .  then Tax_Cnt = 0;
+ if Bnk_Cnt = .  then Bnk_Cnt = 0;
+run;
+
+%macro CID_Growth;
+proc sql;
+	connect to oracle 
+	(user=&U. password=&P. path='NEWDW01.WORLD');
+	create table FULL as select * 
+	from connection to oracle (select Distinct MID 
+	from browser.merch_demo_info_master);
+	disconnect from oracle;
+quit;
+
+proc sql;
+	select compress("MTR"||trim(put(count(*),5.))) into :Last_DS
+	from   dictionary.tables
+	where  libname = 'BSNSDEVL' 
+	and    memname like 'MID_TO_REL________' ;
+
+	select compress(trim(put(count(*),5.))) into :DS_Count
+	from   dictionary.tables
+	where  libname = 'BSNSDEVL' 
+	and    memname like 'MID_TO_REL________' ;
+
+	select compress(memname) into :MTR1-:&Last_DS.
+	from   dictionary.tables
+	where  libname = 'BSNSDEVL' 
+	and    memname like 'MID_TO_REL________' 
+	order by memname descending;
+quit ;
+
+%do s = 1 %to 3;
+%if &s. < 10 %then %do; %let var_name = 0&s.; %end;
+%else %do; %let var_name = &s.; %end;
+proc sql;
+	create table FULL as select a.* ,
+	b.Relationship	as REL_&var_name. , 
+	b.Rel_Type 		as RTY_&var_name. ,
+	b.Rel_MIDCNT	as RMC_&var_name. 
+	From      FULL 				a
+	left join bsnsdevl.&&MTR&s. b on a.mid = b.mid ;
+Quit;
+%end;
+
+data FULL ;
+ retain ID ID_Type Key ; 
+ format Key $210. ID_Type $4. ID $36. ; 
+ set FULL ;
+run ;
+
+%do r = 1 %to 3;
+%if &r. < 10 %then %do; %let v_name = 0&r.; %end;
+%else %do; %let v_name = &r.; %end;
+data FULL ;
+ set FULL ;
+ Key = compress(Key||RTY_&v_name.);
+run ;
+%end;
+
+%let RM_in_list =  'AIRLN', 'HOSP', 'RM', 'RM2';
+
+data FULL ;
+ set FULL ;
+ /* if key = '' then delete ; */
+ 		if index(key,'RM')
+		or index(key,'RM2')
+		or index(key,'AIRLN')
+		or index(key,'HOSP')       then ID_Type = 'MGT';
+ else	if index(key,'FEDTAXID')   then ID_Type = 'TAX';
+ else	if index(key,'ABA_DDA')    then ID_Type = 'BNK';
+ else	if index(key,'MID') 	   then ID_Type = 'MID';
+ else							   	    ID_Type = 'ERR';
+
+ if  ID_Type = 'ERR' then delete;
+
+ /* How many MID have been IDed with different methods in different periods? */
+
+ if ID_Type = 'MGT' then do;
+	 	if RTY_01 in (&RM_in_list.) then ID =  Rel_01 ;
+ else	if RTY_02 in (&RM_in_list.) then ID =  Rel_02 ;
+ else	if RTY_03 in (&RM_in_list.) then ID =  Rel_03 ;
+ end;
+
+ else if ID_Type = 'MID' then do;
+	 	if RTY_01 = 'MID' then ID =  Rel_01 ;
+ else	if RTY_02 = 'MID' then ID =  Rel_02 ;
+ else	if RTY_03 = 'MID' then ID =  Rel_03 ;
+ End;
+
+  else if ID_Type = 'TAX' then do;
+	 	if RTY_01 = "FEDTAXID" then ID =  Rel_01 ;
+ else	if RTY_02 = "FEDTAXID" then ID =  Rel_02 ;
+ else	if RTY_03 = "FEDTAXID" then ID =  Rel_03 ;
+ End;
+
+  else if ID_Type = 'BNK' then do;
+	 	if RTY_01 = "ABA_DDA" then ID =  Rel_01 ;
+ else	if RTY_02 = "ABA_DDA" then ID =  Rel_02 ;
+ else	if RTY_03 = "ABA_DDA" then ID =  Rel_03 ;
+ End;
+
+ if index(key,'FEDTAXID') and index(key,'ABA_DDA')  then Quirk_ID = 1; else Quirk_ID = 0;
+
+run ;
+
+Proc sql;
+	create table MID_CNT_by_ID as select
+	ID ,
+	max(RMC_01) as RMC_01 ,
+	max(RMC_02) as RMC_02 ,
+	max(RMC_03) as RMC_03 
+	from FULL group by ID ;
+quit;
+
+data MID_CNT_by_ID ;
+ set MID_CNT_by_ID ;
+ RMC_Diff = RMC_01 - RMC_02  ;
+ RMC_PCH  = (RMC_01 - RMC_02)/RMC_02 ;
+		if RMC_02 > 0 and RMC_01  = . then CAS = '05 Cold' ;
+ else	if RMC_02 = . and RMC_01  = . then CAS = 'Exclude' ;
+ else	if RMC_02 =       RMC_01      then CAS = '01 Same' ;
+ else	if RMC_02 = . and RMC_01  > 0 then CAS = '02 New ' ;
+ else	if RMC_02 > 0 and RMC_PCH > 0 then CAS = '03 Plus' ;
+ else	if RMC_02 > 0 and RMC_PCH < 0 then CAS = '04 Less' ;
+run ;
+
+proc sql ;
+	create table FULL_v2 as select a.*, 
+	b.RMC_01 	as REL_MIDCNT_CUR_MTH,
+	b.RMC_02 	as REL_MIDCNT_LST_MTH, 
+	b.CAS 		as REL_MID_Alert_GRP
+	from FULL a left join MID_CNT_by_ID b on a.ID = b.ID ;
+quit;
+%mend CID_Growth;
+%CID_Growth
+
+proc sql;
+	create table &T_Name. as select a.*, 
+	b.REL_MIDCNT_CUR_MTH ,
+	b.REL_MIDCNT_LST_MTH ,
+	b.REL_MID_Alert_GRP	
+	from &T_Name. a left join FULL_v2 b on a.mid = b.mid;
+Quit;
+
+
+/* VM Flag, and VAR Flag */
+
+
+proc sql;
+	connect to oracle (user=&U. password=&P. path='NEWDW01.WORLD');
+		create table VM_Flag as select * 
+		from connection to oracle (select distinct
+		a.MID ,
+		a.Model  	as Terminal ,
+		a.date_last_update			as Last_Terminal_Use 
+
+		from aep.equipmnt_merequip a
+		where 	a.type_='E'   
+		and 	a.date_last_update between '01-JAN-2014' and '31-MAR-2014' );
+	disconnect from oracle;
+quit;
+
+data VM_Flag_v2;
+ set VM_Flag;
+ Terminal_Key = compress(Upcase(Terminal));
+ if Terminal_Key in ('VIRTUALMERCHANT','VIRTUALMERCHANTW/TOKEN') then  VM = 1; else  VM = 0;
+ if Terminal_Key in (
+'3DELTA',
+'PAYWAREMOBILE',
+'PCSOFTWARE',
+'SPRMSCLIENT',
+'SPQUICKBKSCLIENT',
+'SERVICEPROVIDERHOSTED',
+'VAR',
+'VARGCS',
+'VARMULTILANEGROCERY/RETAIL',
+'VARSOUTHERNDATACOM',
+'VAR-MERCHANTLINK',
+'VAR-SHIFT4',
+'VARECS',
+'VARAUCTIONPAY',
+'VENDORDISTRIBUTED') 
+then VAR = 1; else VAR = 0;
+run;
+
+Proc Freq data = VM_Flag_v2 ;
+	tables Terminal Terminal_Key VM VAR;
+Run;
+
+Proc SQL;
+	Create Table VM_Flag_v3 as select 
+	MID,
+	sum(vm) 	as VM,
+	sum(var)	as VAR
+	From VM_Flag_v2 Group By MID;
+Quit;
+
+data VM_Flag_v3 ;
+ set VM_Flag_v3 ;
+ if vm  > 0 then vm  = 1;
+ if var > 0 then var = 1;
+run ;
+
+proc sql;
+	create table &T_Name. as select a.*, 
+	coalesce(b.VM,0)	as VM ,
+	coalesce(b.VAR,0)	as VAR
+	from &T_Name. a left join VM_Flag_v3 b on a.mid = b.mid;
+Quit;
+
+
+/* EMV */
+
+
+proc sql;
+	connect to oracle (user=&U. password=&P. path='NEWDW01.WORLD');
+		create table EMV_TERMINALs as select * from connection to oracle (
+		select distinct
+		a.MID ,
+		a.Model  			as Terminal ,
+		a.date_last_update	as Last_Terminal_Use 
+		from aep.equipmnt_merequip a 
+		where 	a.type_='T'   
+		and 	a.date_last_update between '01-JAN-2014' and '31-MAR-2014' );
+	disconnect from oracle;
+quit;
+
+Proc Freq data = EMV_TERMINALs ;
+	tables Terminal ;
+Run;
+
+data EMV_TERMINALs_v2 ;
+ set EMV_TERMINALs ;
+ Terminal_Key = Compress(Upcase(Terminal));
+ if Terminal_Key in (	'INGENICOICT220',		'INGENICOICT250',	'INGENICOICT250CAN',
+						'INGENICOIWL220BCAN',	'INGENICOIWL250G',	'INGENICOIWL250GCAN',
+						'VX520','VX520IP') 
+	then EMV = 1;  else EMV = 0;
+run;
+
+Proc Freq data = EMV_TERMINALs_v2 ;
+	tables Terminal EMV;
+Run;
+
+Proc SQL;
+	Create table EMV_TERMINALs_v3 as select
+	MID, sum(EMV) as EMV
+	From EMV_TERMINALs_v2 Group by MID;
+Quit;
+
+data EMV_TERMINALs_v4 ;
+ set EMV_TERMINALs_v3 ;
+ if EMV > 0 then EMV = 1;
+run;
+
+proc sql;
+	create table &T_Name. as select a.*, 
+	coalesce(b.EMV,0)		as EMV
+	from &T_Name. a left join EMV_TERMINALs_v4 b on a.mid = b.mid;
+Quit;
+
+/* FanFare Capable Terminals */
+
+proc sql;
+	connect to oracle (user=&U. password=&P. path='NEWDW01.WORLD');
+		create table FF_TERMINALs as select * from connection to oracle (
+		select distinct
+		a.MID ,
+		a.Model  			as Terminal ,
+		a.date_last_update	as Last_Terminal_Use 
+		from aep.equipmnt_merequip a 
+		where 	a.type_='T'   
+		and 	a.date_last_update between '01-JAN-2014' and '31-MAR-2014' );
+	disconnect from oracle;
+quit;
+
+Proc Freq data = FF_TERMINALs ;
+	tables Terminal ;
+Run;
+
+data FF_TERMINALs_v2 ;
+ set FF_TERMINALs ;
+ Terminal_Key = Compress(Upcase(Terminal));
+ if Terminal_Key in (	
+	'INGENICOICT220',	'INGENICOICT250',		'INGENICOICT250CAN',
+	'INGENICOIWL250G',	'INGENICOIWL250GCAN',	'VX520') 
+	then FF = 1;  else FF = 0;
+run;
+
+Proc SQL;
+	Create table FF_TERMINALs_v3 as select
+	MID, sum(FF) as FF
+	From FF_TERMINALs_v2 Group by MID;
+Quit;
+
+data FF_TERMINALs_v4 ;
+ set FF_TERMINALs_v3 ;
+ if FF > 0 then FF = 1;
+run;
+
+proc sql;
+	create table &T_Name. as select a.*, 
+	coalesce(b.FF,0) as FF_TERM
+	from &T_Name. a left join FF_TERMINALs_v4 b on a.mid = b.mid;
+Quit;
+
+proc sql;
+	create table &T_Name. as select a.*, 
+	coalesceC(b.MRK_INSGT_SEGMENT,'UNKNOWN') 	as MIS,
+	coalesceC(b.MRK_INSGT_SUBSEGMENT,'UNKNOWN') as MISS 
+	from 		 &T_Name. 			a 
+	left join 	 srs.market_insight_naics 	b on a.Naics_3 = b.Naics3_Code ;
+quit;
+
+Proc Freq data = &T_Name. ;
+	Tables MIS MISS;
+Run;
+
+/**************************************/
+/**************************************/
+/* Propensity of Products by SIC Code */
+/**************************************/
+/**************************************/
+
+/* What SIC Codes tend to have ECS ? */
+
+Proc Freq data = CAM_Scoring_2013_03 ;
+	Tables SECTOR_ROLLUP*ECS Sub_Rollup*ECS / missing nocum nocol nopercent nofreq;
+Run ;
+
+Proc Freq data = CAM_Scoring_2013_03 ;
+	Tables SECTOR_ROLLUP*ECS Sub_Rollup*ECS / missing nocum nocol nopercent norow;
+Run ;
+
+/* What SIC Codes tend to have ECG ? */
+
+Proc Freq data = CAM_Scoring_2013_03 ;
+	Tables SECTOR_ROLLUP*EGC Sub_Rollup*EGC / missing nocum nocol nopercent nofreq;
+Run ;
+
+Proc Freq data = CAM_Scoring_2013_03 ;
+	Tables SECTOR_ROLLUP*EGC Sub_Rollup*EGC / missing nocum nocol nopercent norow;
+Run ;
+
+/* What SIC Codes tend to have EMV ? */
+
+Proc Freq data = CAM_Scoring_2013_03 ;
+	Tables SECTOR_ROLLUP*EMV Sub_Rollup*EMV / missing nocum nocol nopercent nofreq;
+Run ;
+
+Proc Freq data = CAM_Scoring_2013_03 ;
+	Tables SECTOR_ROLLUP*EMV Sub_Rollup*EMV / missing nocum nocol nopercent norow;
+Run ;
+
+/* What SIC Codes tend to have VM ? */
+
+Proc Freq data = CAM_Scoring_2013_03 ;
+	Tables SECTOR_ROLLUP*VM Sub_Rollup*VM / missing nocum nocol nopercent nofreq;
+Run ;
+
+Proc Freq data = CAM_Scoring_2013_03 ;
+	Tables SECTOR_ROLLUP*VM Sub_Rollup*VM / missing nocum nocol nopercent norow;
+Run ;
+
+/* Scoring the CAM Accounts */
+
+%Let EMV_REV = 599 ;
+%Let ECS_REV = 424 ;
+%Let EGC_REV = 154 ;
+%Let VM_REV  = 120 ;
+%Let FF_REV  = 500 ;
+
+data CAM_Scoring_2013_03_v2;
+ set CAM_Scoring_2013_03_qc ;
+
+ /* 
+ 	DCC Opportunity - 
+
+ 	The potential revenue Elavon could garner if the account
+ 	started converting 65% of their foreign volume with DCC.
+
+ 	For accounts that have terminals capable of leveraging DCC and 
+ 	do not currently have DCC "turned-on"
+ */
+
+ if DCC_TERM_ABLE_CNT > 0 and DCC = 'N' and DCC_OPP_REV_REAL_ELV_ANNL > 0 and VAR = 0
+ then DCC_Revenue = DCC_OPP_REV_REAL_ELV_ANNL; else DCC_Revenue = 0;
+
+ /* 
+ 	EMV Opportunity - 
+ 	The EMV sale price for account which do not yet have any EMV terminals
+ 	and do not support any VAS products
+ */
+
+ if EMV = 0 and EGC = 'N' and ECS = 'N' and DCC = 'N' and VAR = 0 and DCC_TERM_ABLE_CNT = 0
+ then EMV_Revenue = &EMV_REV. ; else EMV_Revenue = 0;
+
+/* 
+ 	Mock-up of an Ideal Value Estimation - 
+ 	The Propensity of a customer to use a product x the average
+ 	revenue value that Elavon expects to receive from the customer
+ 	using the product
+*/
+
+
+ /* 
+ 	ECS Opportunity - 
+ 	The Average ECS Revenue x the sub_rollup likelyhood for the product 
+ */
+
+ 
+ if ECS = 'N' and EMV = 0 and VAR = 0 then do;
+ 		if sub_rollup in ('AUTOMOTIVE','HEALTHCARE') 			then ECS_Revenue = (.08)* &ECS_REV. ;
+  else	if sub_rollup = 'HOUSING/CONSTRUCTION'  	 			then ECS_Revenue = (.07)* &ECS_REV. ;
+  else	if sub_rollup = 'GROCERY'  	 				 			then ECS_Revenue = (.06)* &ECS_REV. ;
+  else	if sub_rollup in ('HOME FURNISHINGS', 'DURABLE GOODS')  then ECS_Revenue = (.05)* &ECS_REV. ;
+  else	 															 ECS_Revenue = (.04)* &ECS_REV. ;
+ end;
+ if ECS_Revenue = . then ECS_Revenue = 0;
+
+ /* ECS NoProb */
+ if ECS = 'N' and EMV = 0 and VAR = 0 and sub_rollup in
+ ('AUTOMOTIVE','HEALTHCARE', 'HOUSING/CONSTRUCTION', 'GROCERY', 'HOME FURNISHINGS', 'DURABLE GOODS')  
+ then ECS_Revenue = &ECS_REV. ; 
+ else ECS_Revenue = 0 ;
+
+ /* 
+ 	EGC Opportunity - 
+ 	The Average ECG Revenue x the sub_rollup likeyhood for the product 
+ */
+
+ if EGC = 'N' and EMV = 0 and VAR = 0 then do;
+ 		if sub_rollup = 'RESTAURANTS' 									 then EGC_Revenue = (0.13)* &EGC_REV. ;
+  else	if sub_rollup = 'APPAREL' 										 then EGC_Revenue = (0.08)* &EGC_REV. ;
+  else	if sub_rollup in ('HEALTH & BEAUTY', 'DURABLE GOODS') 			 then EGC_Revenue = (0.07)* &EGC_REV. ;
+  else	if sub_rollup in ('CONSUMABLES', 'GROCERY') 					 then EGC_Revenue = (0.06)* &EGC_REV. ;
+  else	if sub_rollup in ('AUTOMOTIVE', 'SERVICES OTHER', 'RECREATION' ) then EGC_Revenue = (0.05)* &EGC_REV. ;
+  else	if sub_rollup = 'HOME FURNISHINGS' 								 then EGC_Revenue = (0.04)* &EGC_REV. ;
+  else																		  EGC_Revenue = (0.03)* &EGC_REV. ;
+ end;
+ if EGC_Revenue = . then EGC_Revenue = 0;
+
+ /* EGC NoProb */
+ if EGC = 'N' and EMV = 0 and VAR = 0 and sub_rollup in
+ ('RESTAURANTS', 'APPAREL', 'HEALTH & BEAUTY', 'DURABLE GOODS', 'CONSUMABLES', 'GROCERY',
+ 'AUTOMOTIVE', 'SERVICES OTHER', 'RECREATION', 'AUTOMOTIVE', 'SERVICES OTHER', 'RECREATION', 'HOME FURNISHINGS')
+ then EGC_Revenue = &EGC_REV. ; 
+ else EGC_Revenue = 0;
+
+ /* 
+ 	Volume Alert 
+ 	The RTM DIAOR for accounts which have had signifiant drop in
+ 	their weekly volume
+ */
+
+ if Volume_Alert = 1 then VA_Revenue = sum(MID_DIAO,MID_R) ; else VA_Revenue = 0 ;
+
+ /* 
+ 	Virtual Merchant Opportunity - 
+ 	The Potentail Rev from selling VM x the sub_rollup likeyhood for the product 
+ */
+
+ if VM = 0 and VAR = 0 then do;
+ 		if sub_rollup = 'DIRECT MARKETING' 	then VM_Revenue = (0.04)* &VM_REV. ;
+  else	if sub_rollup = 'FINANCIAL' 		then VM_Revenue = (0.03)* &VM_REV. ;
+  else	if sub_rollup = 'SERVICES OTHER' 	then VM_Revenue = (0.02)* &VM_REV. ;
+  else											 VM_Revenue = (0.01)* &VM_REV. ;
+ end;
+ if VM_Revenue = . then VM_Revenue = 0;
+
+ /* VM NoProb */
+ if VM = 0 and VAR = 0 and sub_rollup in ('DIRECT MARKETING', 'FINANCIAL', 'SERVICES OTHER')
+ then VM_Revenue = &VM_REV. ; 
+ else VM_Revenue = 0;
+
+ /* FanFare */
+ if 	ECS 	= 'N' 
+ and 	EGC 	= 'N' 
+ and 	DCC 	= 'N' 
+ and 	VAR 	= 0 
+ and 	FF_TERM = 1 
+ and	BC_VOLUME < 3000000
+ and	Rel_MIDCNT le 10
+ and	(BC_VOLUME / BC_TRANCOUNT) < 25
+ and	 (MISS = "RESTAURANTS" or MIS in ("RETAIL", "CONSUMER SERVICES"))
+ then FF_Revenue = &FF_Rev. ;
+ else FF_Revenue = 0 ;
+
+ /* Max Potential Revenue */
+
+ MPR = max(
+	DCC_Revenue, 	EMV_Revenue, 	ECS_Revenue, 
+	EGC_Revenue, 	VA_Revenue, 	VM_Revenue,		FF_Revenue) ;
+ if MPR = . then MPR = 0 ;
+
+		if   MPR = 0           then Product_Message = 'N/A' ;
+ else	if   MPR = DCC_Revenue then Product_Message = 'DCC' ;
+ else	if	 MPR = EMV_Revenue then Product_Message = 'EMV' ;
+ else	if	 MPR = ECS_Revenue then Product_Message = 'ECS' ;
+ else	if	 MPR = EGC_Revenue then Product_Message = 'EGC' ;
+ else	if	 MPR = VA_Revenue  then Product_Message = 'VA ' ;
+ else	if	 MPR = VM_Revenue  then Product_Message = 'VM ' ;
+ else	if	 MPR = FF_Revenue  then Product_Message = 'FF ' ;
+ else	if   VAR = 1 		   then Product_Message = 'VAR' ;
+ else							    Product_Message = 'N/A' ;
+
+ /* Customer Growth */
+
+ YTD_YOY_DIAO_PC = ((Curr_YTD_DIAO - Last_YTD_DIAO) / Last_YTD_DIAO);
+ if Last_YTD_DIAO = 0 then YTD_YOY_DIAO_PC = 0;
+ 
+ 	 if YTD_YOY_DIAO_PC < -0.05 then Acct_YTD_YOY_DIAO_Group = '03 Decreasing' ;
+else if YTD_YOY_DIAO_PC >  0.05 then Acct_YTD_YOY_DIAO_Group = '01 Increasing' ;
+else 								Acct_YTD_YOY_DIAO_Group = '02 Sustaining' ;
+if YTD_YOY_DIAO_PC = . 		   then Acct_YTD_YOY_DIAO_Group = '04 Null Data ' ;
+
+MtM_MID_CNT_CHG = REL_MIDCNT_CUR_MTH - REL_MIDCNT_LST_MTH;
+if MtM_MID_CNT_CHG = . then MtM_MID_CNT_CHG = 0;
+
+ Label
+	MPR 			= 'Max Potential Revenue'
+	Product_Message = 'Potential Revenue'
+ ;
+ Format YTD_YOY_DIAO_PC Percent8.0;
+run;
+
+Proc Freq data = CAM_Scoring_2013_03_v2 ;
+	Tables Product_Message;
+Run;
+
+Proc Means data = CAM_Scoring_2013_03_v2 MaxDec = 0  Mean;
+	Class Product_Message ;
+	Var  MPR ;
+Run ;
+
+/* Output Files by CAM Manager */
+
+/*
+proc sql;
+	connect to oracle 
+	(user=&U. password=&P. path='NEWDW01.WORLD');
+	create table Output_File_v1 as select * 
+	from connection to oracle (select * from bsnsdevl.ccornettcam_assign);
+	disconnect from oracle;
+quit ;
+*/
+
+Proc SQL;
+	create table Output_File_v2 as select a.* ,
+	b.Last_YTD_DIAO 			Label = "Acct Last YR YTD DIAO" , 
+	b.Curr_YTD_DIAO 			Label = "Acct Curr YR YTD DIAO" , 
+	b.YTD_YOY_DIAO_PC 			Label = "Acct YTD YoY DIAO % Change",
+	b.Acct_YTD_YOY_DIAO_Group 	Label = "Acct YTD YoY DIAO % Change Group" ,
+	b.REL_MIDCNT_LST_MTH		Label = "Customer MID Count Last Month" ,
+	b.REL_MIDCNT_CUR_MTH 		Label = "Customer MID Count Curr Month" ,
+	b.MtM_MID_CNT_CHG			Label = "Month to Month Customer MID Count Change" ,
+
+	b.DCC_Revenue 				Label = "DCC Revenue Opportunity" 	, 	
+	b.EMV_Revenue				Label = "EMV Revenue Opportunity" 	, 	 	
+	b.ECS_Revenue				Label = "ECS Revenue Opportunity" 	, 	
+	b.EGC_Revenue				Label = "EGC Revenue Opportunity" 	, 	
+	b.VA_Revenue				Label = "VA  Revenue Opportunity" 	, 
+	b.VM_Revenue				Label = "VM  Revenue Opportunity" 	, 	
+	b.FF_Revenue				Label = "FF  Revenue Opportunity"	,
+	b.MPR	 					Label = "Max Potential Revenue"		,
+	c.REL_MPR					Label = "REL Max Potential Revenue"	,
+	b.Product_Message			Label = "Product Message"			
+
+	from Output_File_v1 				a 
+	left join CAM_Scoring_2013_03_v2	b on a.mid = b.mid 
+	left join (	select Relationship, sum(MPR) as REL_MPR from CAM_Scoring_2013_03_v2 group by Relationship ) 
+										c on a.Relationship = c.Relationship;	
+Quit;
+
+Proc Sort data = Output_File_v2;
+	by ASSIGN_REP descending MPR descending MtM_MID_CNT_CHG descending YTD_YOY_DIAO_PC ;
+Run;
+
+data Output_File_v3 ;
+ set Output_File_v2 ;  
+   by ASSIGN_REP ;
+   if first.ASSIGN_REP then Account_Priority = 0 ;
+   Account_Priority+1;
+   Format Touch_Date Touch_Time Touch_Result Tactic Acceptance $25. ;
+run ;
+
+%Macro CAM_OUTPUT_FILES;
+	Proc SQL;
+		Select 		 Distinct ASSIGN_REP  into :REPS Separated by '*' from Output_File_v3 ;
+		Select Count(Distinct ASSIGN_REP) into :REP_CNT 			  from Output_File_v3 ;
+	Quit;
+	%do x = 1 %to &REP_CNT ;
+	%let REP = %Scan(&REPS,&x.,'*');
+		Ods html file ="\\svrpc-file01\departments\CEM Analytics Group\CAM Touch Priority\CAM Touch Priority, for Rep &REP BoB_2014_05_01.xls";
+			Proc Print Data = Output_File_v3 noobs; where ASSIGN_REP = "&REP"; Run;					
+		ods html close;
+	%end;
+%Mend CAM_OUTPUT_FILES;
+
+%CAM_OUTPUT_FILES
