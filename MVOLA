@@ -1,0 +1,431 @@
+
+
+/*************************************//*************************************//*************************************/
+/*************************************//*************************************//*************************************/
+/*************************************//* Mexico MID Level VOL Alert Report *//*************************************/
+/*************************************//*************************************//*************************************/
+/*************************************//*************************************//*************************************/
+
+
+/* System Options */
+
+libname srs  'C:\Users\srseibe\SAS Tables'; 
+libname geo  'C:\Users\srseibe\SAS Tables\geo';
+
+Options  	
+NoDate  
+NoNumber 	
+NoCenter   			
+FMTERR 
+Compress=Yes 
+MCompileNote = All 	
+MERROR 
+Errors=5  
+FullsTimer;
+  
+ods graphics off;
+
+/* Network Libs */
+
+libname ST "\\svrpc-file01\departments\CEM Analytics Group\SAS tables";
+
+/* Oracle Database Connections */
+
+%let u 		= bsnsdevl; 		%let p 		= "11fiab06";
+%let TDSA_U = SRSEIBE; 			%let TDSA_P = 'p$628udayz';
+
+/* Conection Options */
+
+%Let CO  = user = &U pw = &p path = NEWDW01.WORLD CONNECTION = Global dbindex = yes read_lock_type = nolock readbuff = 250;
+
+/* Production - Personal - Sandbox Libs */
+
+Libname aep 	 oracle  schema = 	aep 		&CO ;
+Libname browser  oracle  schema	=	browser 	&CO ;
+Libname dw 		 oracle  schema	=	dw 			&CO ;
+Libname clarkc 	 oracle  schema	=	clarkc 		&CO ;
+Libname bastrat  oracle  schema	=	bastrat 	&CO ;
+Libname bsnsdevl oracle  schema	=	bsnsdevl 	&CO ;
+Libname webobj   oracle  schema	=	webobj 		&CO ;
+
+Libname TDSA oracle schema = TDS		
+user = &TDSA_U pw = &TDSA_P path = TDSA.WORLD CONNECTION = Global dbindex = yes read_lock_type = nolock readbuff = 250;  
+
+Libname UMID oracle schema = UMID	
+user = &TDSA_U pw = &TDSA_P path = TDSA.WORLD CONNECTION = Global dbindex = yes read_lock_type = nolock readbuff = 250;  
+
+
+/* Date Parameters */
+
+data ym;
+ Format SAS_S_Date SAS_E_Date Date9. ;
+ SAS_E_Date = today()-1;
+ SAS_S_Date = intnx('day',SAS_E_Date,-30);
+ if day(SAS_S_Date) < 10 then S_Day = Compress("0"||day(SAS_S_Date)); else S_Day = day(SAS_S_Date); 
+ if day(SAS_E_Date) < 10 then E_Day = Compress("0"||day(SAS_E_Date)); else E_Day = day(SAS_E_Date); 
+ ORA_S_Date = Compress("'"||S_Day||"-"||Upcase(substr(Compress(Put(SAS_S_Date,monname.)),1,3))||"-"||year(SAS_S_Date)||"'");
+ ORA_E_Date = Compress("'"||E_Day||"-"||Upcase(substr(Compress(Put(SAS_E_Date,monname.)),1,3))||"-"||year(SAS_E_Date)||"'"); 
+ Call SymputX('SD',ORA_S_Date);
+ Call SymputX('ED',ORA_E_Date);
+ if day(today())   < 10 then T_Day = Compress("0"||day(today()));   else T_Day = day(today()); 
+ if month(today()) < 10 then T_Mon = Compress("0"||month(today())); else T_Mon = month(today()); 
+ File_Today = compress(year(today())||T_MON||T_Day);
+ File_Today_Title = compress(year(today())||"-"||T_MON||"-"||T_Day);
+ Call SymputX('FT',File_Today);
+ Call SymputX('FTT',File_Today_Title);
+run;
+
+%Put 
+The Start Date is &SD. , 
+the End Date is &ED. . 
+The file name for today will be srs.MXN_Alerts_raw_&ft.
+The file name title is &FTT.
+;
+
+proc contents data = TDSA.EHDR 		varnum; run;
+proc contents data = UMID.RPT_T_MER ; run;
+
+/*
+	Helpful Variables in v
+		Open Date				open_date
+		Close Date				cls_dte
+		Merchant Category Code	mcc_cde		
+		Processing Center Code	PRCS_CENTRE_CDE
+		Mercahnt Status			MER_STAT_TXT
+		
+*/		
+
+
+proc sql;
+	connect to oracle (user = &TDSA_U. password = &TDSA_P. path= 'TDSA.WORLD');
+	create table temp_test as select * from connection to oracle ( 
+	select * from UMID.RPT_T_MER where rownum < 50);
+	disconnect from oracle;
+quit;
+
+
+proc sql;
+	connect to oracle (user = &TDSA_U. password = &TDSA_P. path= 'TDSA.WORLD');
+	create table temp_test as select * from connection to oracle ( 
+	select distinct from UMID.RPT_T_MER where rownum < 50);
+	disconnect from oracle;
+quit;
+
+
+TERRITORY_DSC
+
+proc sql;
+	connect to oracle (user = &TDSA_U. password = &TDSA_P. path= 'TDSA.WORLD');
+	create table temp_test as select * from connection to oracle ( 
+	select distinct Mid_group from UMID.RPT_T_MER );
+	disconnect from oracle;
+quit;
+
+proc sql;
+	connect to oracle (user = &TDSA_U. password = &TDSA_P. path= 'TDSA.WORLD');
+	Create table srs.MXN_Alerts_raw_&ft. as select * from connection to oracle ( 
+	select 
+		MID_Tag,
+		Ext_MID, 
+		Batch_Date, 
+		sum(BATCH_NET_AMT) DAILY_VOL
+	from 	TDS.EHDR
+	where 	prcs_centre_cde = 'QUERE'       
+	and 	batch_date between &SD. and &ED.
+	group by MID_TAG, Ext_MID, BATCH_DATE );
+	disconnect from oracle;
+quit;
+
+data file ;
+ set srs.MXN_Alerts_raw_&ft. ;
+ Format batch_date Date9.;
+ batch_date = datepart(batch_date);
+run ;
+
+/*************************************/
+/*************************************/
+/* Prepare the Daily List for Export */
+/*************************************/
+/*************************************/
+
+data Clean;
+ set file;
+ if Ext_MID = '' then delete;
+ if DAILY_VOL < 0       then Negative_day = 1 ;  else Negative_Day = 0 ;
+run;
+
+Proc Sql;
+	create table avg as select
+	Ext_MID,
+	mean(DAILY_VOL) 	as AVG_DAY_VOL	Label = "Average Daily VOL" Format = 12.2,
+	std(DAILY_VOL)  	as STD_DAY_VOL	Label = "Standard Deviation for Daily VOL" Format = 12.2,
+	sum(Negative_day)	as SUM_NEG_DAY 	Label = "Number of Negative VOL Days" 
+	from clean group by Ext_MID;
+Quit;
+
+/* START | ID MIDs with an unusual number of high VOL days - the top 0.15% of the MIDs */
+
+data MIDs_wNEG_Days;
+ set avg;
+ if SUM_NEG_DAY >= 2 ;
+ Keep MID_Tag Ext_MID AVG_DAY_VOL SUM_NEG_DAY;
+run;
+
+proc sort data = MIDs_wNEG_Days ;
+	by descending SUM_NEG_DAY  ;
+run ;
+
+/* END 		| ID MIDs with an unusual number of high VOL days - the top 0.15% of the MIDs */
+
+/***********************************************************/
+/***********************************************************/
+/***********************************************************/
+
+/* START 	|  ID Remaining MIDs with dropping VOL amounts  */
+
+proc sql;
+	select Distinct '"'||Ext_MID||'"' into :MID_LIST seperated by ' , ' from MIDs_wNEG_Days;
+quit;
+
+%Put Let your eyes see the MIDs, the MIDs are &MID_LIST. You are Welcome. ;
+
+/* Remove 
+	1. Rows with null values for the MIDs
+	2. MIDs who were already flagged as having multiple negative days
+	3. Days for MIDs who only have 1 negative day
+*/
+
+data Clean_v2;
+ set file;
+ 	if 	Ext_MID =  '' 
+	or 	Ext_MID in (&MID_LIST.) 
+ 	or  DAILY_VOL < 0 then delete;
+run;
+
+Proc Sql;
+	create table avg as select
+	Ext_MID,
+	Count(Distinct batch_date)  as ACTIVE_DAY_CNT	Label = "Count of Active Days" , 
+	mean(DAILY_VOL) 			as AVG_DAY_VOL		Label = "Average Daily VOL" Format = 12.2 ,
+	std(DAILY_VOL)  			as STD_DAY_VOL		Label = "Standard Deviation for Daily VOL" Format = 12.2 ,
+	max(batch_date)				as LAST_DAY			Format = date9.
+	from clean_v2 group by Ext_MID;
+Quit;
+
+data avg; 
+ set avg;
+ Format AVG_DAY_VOL STD_M2 STD_M1 STD_DAY_VOL STD_P1 STD_P2 PCH_M1 PCH_P1 PCH_M2 PCH_P2  Comma8.0;
+
+ STD_M2 = AVG_DAY_VOL - (STD_DAY_VOL*2)		; if STD_M2 < 0 then STD_M2 = 0;
+ STD_P2 = AVG_DAY_VOL + (STD_DAY_VOL*2)		; 
+
+ STD_M1 = AVG_DAY_VOL - (STD_DAY_VOL*1)		; if STD_M1 < 0 then STD_M1 = 0;
+ STD_P1 = AVG_DAY_VOL + (STD_DAY_VOL*1)		; 
+
+ PCH_M1 = AVG_DAY_VOL - (AVG_DAY_VOL*0.90) 	; if PCH_M1 < 0 then PCH_M1 = 0;
+ PCH_P1 = AVG_DAY_VOL + (AVG_DAY_VOL*1.10) 	; 
+
+ PCH_M2 = AVG_DAY_VOL - (AVG_DAY_VOL*0.80) 	; if PCH_M2 < 0 then PCH_M2 = 0;
+ PCH_P2 = AVG_DAY_VOL + (AVG_DAY_VOL*1.20) 	;
+ 
+run;
+
+proc sql;
+	create table alert as select a.*, b.* 
+	from Clean_v2 a left join avg b on a.Ext_MID = b.Ext_MID;
+quit;
+
+data alert;
+ set alert;
+
+ If active_day_cnt > 9 and avg_day_vol > 10; 
+
+ if daily_vol le STD_M2 then STD2_LL  	= 1 ;  else STD2_LL  = 0 ; 
+ if daily_vol ge STD_P2 then STD2_UL  	= 1 ;  else STD2_UL  = 0 ; 
+
+ if daily_vol le STD_M1 then STD1_LL 	= 1 ;  else STD1_LL  = 0 ; 
+ if daily_vol ge STD_P1 then STD1_UL  	= 1 ;  else STD1_UL  = 0 ; 
+
+ if daily_vol le PCH_M2 then PCH2_LL  	= 1 ;  else PCH2_LL  = 0 ; 
+ if daily_vol ge PCH_P2 then PCH2_UL  	= 1 ;  else PCH2_UL  = 0 ; 
+
+ if daily_vol le PCH_M1 then PCH1_LL  	= 1 ;  else PCH1_LL  = 0 ; 
+ if daily_vol ge PCH_P1 then PCH1_UL  	= 1 ;  else PCH1_UL  = 0 ; 
+ 
+ if STD2_LL = 1 and batch_date = last_day then Big_Drop_1day  = 1;  else Big_drop_1day   = 0;
+ if STD1_LL = 1 and batch_date = last_day then Small_Drop_1day = 1; else Small_drop_1day = 0;
+
+ if STD2_LL = 1 and (batch_date = last_day and (batch_date) = last_day-1) then Big_Drop_2day   = 1;  else Big_drop_2day   = 0;
+
+ if STD1_LL = 1 and (batch_date = last_day and (batch_date) = last_day-1) then Small_Drop_2day = 1;  else Small_drop_2day = 0;
+
+ if (STD1_LL = 1 and batch_date = last_day)   then C1 = 1; else C1 = 0;
+ if (STD1_LL = 1 and batch_date = last_day-1) then C2 = 1; else C2 = 0;
+
+ if (STD2_LL = 1 and batch_date = last_day)   then C3 = 1; else C3 = 0;
+ if (STD2_LL = 1 and batch_date = last_day-1) then C4 = 1; else C4 = 0;
+ 
+run;
+
+/* How do the alerts vary in sensativity ? */ 
+
+/*
+
+http://en.wikipedia.org/wiki/68%E2%80%9395%E2%80%9399.7_rule
+
+Proc SQL;
+	Select Count(Distinct MID) as MID_CNT from alert ; 
+	Select Count(Distinct MID) as STD1_MID_ALERT_CNT from alert where STD1_LL  	= 1  ; 
+	Select Count(Distinct MID) as STD2_MID_ALERT_CNT from alert where STD2_LL  	= 1  ;
+	Select Count(Distinct MID) as PCH1_MID_ALERT_CNT from alert where PCH1_LL  	= 1  ; 
+	Select Count(Distinct MID) as PCH2_MID_ALERT_CNT from alert where PCH2_LL  	= 1  ;
+
+	Select Count(Distinct MID) as BD_1Day from alert where Big_drop_1day  	= 1	 ;
+	Select Count(Distinct MID) as BD_2Day from alert where Big_drop_2day  	= 1	 ;
+	Select Count(Distinct MID) as SD_1Day from alert where Small_drop_1day  = 1	 ;
+	Select Count(Distinct MID) as SD_2Day from alert where Small_drop_2day  = 1	 ;
+Quit;
+*/
+
+proc sql;
+	create table fin as select 
+	ext_mid,
+	sum(C1) as C1, 
+	sum(C2) as C2, 
+	sum(C3) as C3, 
+	sum(C4) as C4 
+	from alert group by ext_mid; 
+quit;
+
+data fin;
+ set fin;
+ STD1_Double_Drop = sum(c1, c2);
+ STD2_Double_Drop = sum(c3, c4);
+run;
+
+proc sql;
+	select Count(distinct Ext_MID) as CNT from fin where STD1_Double_Drop = 2;
+	select Count(distinct Ext_MID) as CNT from fin where STD2_Double_Drop = 2;
+quit;
+
+Proc sql;
+	select Distinct compress("'"||Ext_MID||"'") Into :Mini_MIDS seperated by ' , ' from fin where STD1_Double_Drop = 2;
+quit;
+
+data alert_v2;
+ set alert;
+ if Ext_MID in (&Mini_MIDS.) then POP_POP = 1 ; else POP_POP = 0;
+ if POP_POP = 1 and batch_date = last_day-1 then VOL_D1 = Daily_VOL;
+ if POP_POP = 1 and batch_date = last_day   then VOL_D2 = Daily_VOL;
+run;
+
+proc univariate data = alert_v2 ;
+	where 	Ext_MID =   '1002898'; var 	DAILY_VOL   ; Histogram;
+proc univariate data = alert_v2 ;
+	where 	Ext_MID =   '1005411'; var 	DAILY_VOL   ; Histogram;
+proc univariate data = alert_v2 ;
+	where 	Ext_MID =   '1016955'; var 	DAILY_VOL   ; Histogram;
+run;
+
+Proc sql;
+	select Count(distinct Ext_MID) as CNT from alert_v2 where POP_POP = 1;
+	select Count(distinct Ext_MID) as CNT from fin 		where STD1_Double_Drop = 2;
+quit;
+
+proc sql;
+	create table ALARMING as select 
+	Ext_Mid as EXT_MID, 
+	max(AVG_DAY_VOL)	as AVG_DAY_VOL 			Label = "Average Daily VOL"	,
+	max(active_day_cnt)	as ACT_DAY_CNT 			Label = "Active Day Count"	,
+	sum(VOL_D1)		    as VOL_D1 ,
+	sum(VOL_D2)		    as VOL_D2 
+	from alert_v2 where POP_POP = 1 group by Ext_Mid ;
+quit;
+
+data ALARMING;
+ Retain Ext_MID AVG_DAY_VOL LOWEST_DAY_VOL PC_DROP_from_AVG ACT_DAY_CNT ;
+ set ALARMING;
+ LOWEST_DAY_VOL = min(vol_d1, vol_d2); 
+ if AVG_DAY_VOL = LOWEST_DAY_VOL then delete;
+ PC_DROP_from_AVG = ( LOWEST_DAY_VOL - AVG_DAY_VOL ) / AVG_DAY_VOL ;
+ Format AVG_DAY_VOL LOWEST_DAY_VOL  vol_d1 vol_d2 Comma12.1 PC_DROP_from_AVG Percent8.2 ACT_DAY_CNT Comma12.0 ;
+ Label
+ 	Ext_MID				= "EXT MID"
+ 	AVG_DAY_VOL 		= "Average Daily VOL"
+	LOWEST_DAY_VOL  	= "Lowest VOL in the two most recent days"
+	PC_DROP_from_AVG 	= "% Drop in Daily VOL on lowest day from the Average"
+	ACT_DAY_CNT			= "The number of Active Days for the MID in the past 30 days"
+ ;
+ drop vol_d1 vol_d2;
+run;
+
+proc sort data = alarming;
+	by descending AVG_DAY_VOL PC_DROP_from_AVG  ;
+run ;
+
+Data ALARMING;
+ set ALARMING;
+ if _N_ < 201;
+run;
+
+/* END | ID Remaining MIDs with dropping VOL amounts  */
+
+/* START 	| Export the MID Lists */
+
+/*
+		Footnote1 "This report contains the 200 MIDs who";
+		Footnote2 "experienced a succesive drop in VOL ";
+		Footnote3 "in their two most recent processing days";
+*/
+
+%Let Now = %Sysfunc(time(),timeampm.);
+
+ods html 
+	Style = HighContrast	
+	File  = "C:\Users\srseibe\Desktop\Task\Mexico_Alerts\MID_Alert_Lists\SAS_Raw_Outputs\Mexico Daily VOL Alert Report.xls";
+	Title1 "The Daily Mexico VOL Alert Report";
+	Title2 " ";
+	Title3 "This report was run on: &FTT. at &Now ET";
+	Proc Print data = alarming label; 
+		ID EXT_MID; 
+	run;
+	Title; Footnote;
+ods html close; 
+
+/* Daily Mexico VOL Alert - DMVA */
+
+/* 
+%let TO_list = ("Samuel.Seibert@Elavon.com");
+
+Filename DMVA
+	Email 
+	From 	=	 ("Samuel.Seibert@Elavon.com")
+	To		=	 &To_List.
+	Subject = 	 "Daily Mexico VOL Alert - Top 200 MIDs"
+	Attach	=	 "C:\Users\srseibe\Desktop\Task\Mexico_Alerts\MID_Alert_Lists\SAS_Raw_Outputs\Mexico Daily VOL Alert - Report Date &ftt. .xls";
+
+Data _Null_;
+ File DMVA ;
+ Put "Hello,";
+ Put " ";
+ Put " ";
+ Put "Please see the attached .XLS file for the &ftt. Mexico Daily VOL Alert."
+ //  "Feel free to contact me at, Samuel.Seibert@Elavon.com, with any questions.";
+ Put " ";
+ Put " ";
+ Put "All the best,"
+ //	 "-Samuel RS"
+ //  " "
+ //  "This is an automated email sent on behalf of Samuel Seibert"
+ //  " "
+ //  "Samuel R. Seibert | Senior Analyst, Advanced Analytics"
+ //  "Elavon | Global Acquiring Solutions"
+ //  "Two Concourse Parkway |Suite 800 | Atlanta, GA 30328"
+ //  "P: 404-507-2677 Ext: 5677 Samuel.Seibert@Elavon.com";
+Run;
+*/
+
+/* END 		| Export the MID Lists */
+
+
+
